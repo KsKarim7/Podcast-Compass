@@ -13,8 +13,7 @@ month.
 
 - **Students and self-learners** on educational or interview episodes, who want to revise and test
   themselves rather than listen again.
-- **Researchers and journalists** who remember something was said and need the moment, quoted
-  accurately.
+- **Researchers and journalists** who remember something was said and need the moment, quoted.
 - **Busy listeners** deciding whether a 90-minute episode is worth their time.
 
 The one problem we solve best: **finding and trusting a specific claim in a long episode.** Podcast
@@ -47,20 +46,26 @@ Out on cost, so we left its undocumented details alone. Streamlit Community Clou
 [sleeps after 12 hours without traffic](https://docs.streamlit.io/deploy/streamlit-community-cloud/manage-your-app);
 any visitor can wake it.
 
+**Maintenance.** Models get retired, and we hit it during this research: `gemini-2.5-flash` returned
+404 "no longer available to new users", and the
+[2.5 family](https://ai.google.dev/gemini-api/docs/models) is now limited to projects that already
+used it. So model names live in configuration rather than code, and the fallback model covers a
+retirement or an outage without a code change.
+
 ## 3. Reliability
 
 We make every claim checkable in code rather than asking the model to be careful.
 
-- **Timestamps never come from the model** — they are parsed from VTT or SRT cues. Plain text input
-  gets no timestamps and a visible notice saying why.
+- **Timestamps never come from the model** — they are parsed from VTT or SRT cues. Plain text gets
+  no timestamps and a visible notice saying why.
 - **Segment IDs plus quotes.** The transcript is split into numbered segments first. Every takeaway,
   chapter start and quiz answer cites segment IDs and a short quote; the server checks the IDs
   exist, the quote appears in the cited segment, and chapter starts run in order. Failures are
   dropped or shown as unverified.
 - **Schema validation.** Output is parsed into Pydantic models; malformed output gets one repair
   retry, then a clear error rather than a partial result.
-- **Refusing unanswerable items.** The prompt answers only from the transcript, and a quiz question
-  that cannot be grounded in a segment is dropped rather than guessed.
+- **Refusing unanswerable items.** The prompt answers only from the transcript; a quiz question that
+  cannot be grounded in a segment is dropped rather than guessed.
 - **Transient failures are real.** `gemini-3.1-flash-lite` returned a 503 on our first call and
   succeeded a minute later unchanged — hence retry with backoff, then the fallback model.
 
