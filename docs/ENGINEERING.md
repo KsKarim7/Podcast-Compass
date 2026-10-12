@@ -121,16 +121,19 @@ authoritative.
 Audio upload is out of scope for this build. This is the comparison we would start from if we added
 it.
 
-| | **Groq Whisper** | **Gemini audio input** |
-|---|---|---|
-| File limits | [25 MB free tier, 100 MB dev tier](https://console.groq.com/docs/speech-to-text); larger files via a `url` parameter instead of upload. Minimum billed length 10 seconds | [20 MB total inline request size](https://ai.google.dev/gemini-api/docs/audio) including prompt and files, or the Files API for larger; up to 9.5 hours per prompt |
-| Formats | flac, mp3, mp4, mpeg, mpga, m4a, ogg, wav, webm | WAV, MP3, AIFF, AAC, OGG, FLAC, MPEG, M4A, L16, Opus, ALAW, MULAW, WebM |
-| Timestamps | API-derived: `response_format=verbose_json` with `timestamp_granularities[]` of `word` and/or `segment` (segment is the default) | **No documented structured segment field** — timestamps come from the model's text output, or from a response schema you define yourself |
-| Cost | `whisper-large-v3` $0.111/hour, `whisper-large-v3-turbo` $0.04/hour | Audio counts as input tokens at [32 tokens per second](https://ai.google.dev/gemini-api/docs/audio) (1,920/minute), so it draws on the same free-tier token quota |
+| | **Groq Whisper** | **Gemini audio input** | **OpenAI transcription** |
+|---|---|---|---|
+| File limits | [25 MB free tier, 100 MB dev tier](https://console.groq.com/docs/speech-to-text); larger files via a `url` parameter instead of upload. Minimum billed length 10 seconds | [20 MB total inline request size](https://ai.google.dev/gemini-api/docs/audio) including prompt and files, or the Files API for larger; up to 9.5 hours per prompt | [25 MB](https://developers.openai.com/api/docs/guides/speech-to-text); larger files must be compressed or split into 25 MB chunks |
+| Formats | flac, mp3, mp4, mpeg, mpga, m4a, ogg, wav, webm | WAV, MP3, AIFF, AAC, OGG, FLAC, MPEG, M4A, L16, Opus, ALAW, MULAW, WebM | mp3, mp4, mpeg, mpga, m4a, wav, webm |
+| Timestamps | API-derived: `response_format=verbose_json` with `timestamp_granularities[]` of `word` and/or `segment` (segment is the default) | **No documented structured segment field** — timestamps come from the model's text output, or from a response schema you define yourself | API-derived, but `timestamp_granularities[]` is supported only on `whisper-1`, and the page documents `word` granularity without explicitly documenting `segment` `[UNVERIFIED]`. `gpt-4o-transcribe-diarize` returns segments with `start`/`end` via `diarized_json` |
+| Cost | `whisper-large-v3` $0.111/hour, `whisper-large-v3-turbo` $0.04/hour | Audio counts as input tokens at [32 tokens per second](https://ai.google.dev/gemini-api/docs/audio) (1,920/minute), so it draws on the same free-tier token quota | [whisper-1 $0.006/min, gpt-transcribe $0.0045/min](https://developers.openai.com/api/docs/pricing); no free tier listed |
 
-Only Groq Whisper returns timestamps that come from the transcription itself. Gemini would have the
-model write the times, which our grounding rule forbids. So adding audio means adding a second
-provider: Groq for segments, Gemini for text. The 25 MB free-tier cap is the other constraint: at a
+OpenAI's transcription endpoint is a credible option on capability — its limits and formats are
+close to Groq's — but it has no free tier, so the free-tiers-only rule excludes it before quality
+or latency enters the discussion. That leaves Groq Whisper as the only option returning timestamps
+derived from the transcription itself. Gemini would have the model write the times, which our
+grounding rule forbids. So adding audio means adding a second provider: Groq for segments, Gemini
+for text. The 25 MB free-tier cap is the other constraint: at a
 typical 128 kbps podcast bitrate that is roughly 26 minutes of audio by our own arithmetic, so a
 40-minute episode would exceed it and need the `url` parameter.
 
@@ -154,7 +157,10 @@ table is the one to follow.
 - [Your data in GroqCloud](https://console.groq.com/docs/your-data) — no retention by default, 30-day abuse logs, ZDR.
 - [Groq speech-to-text](https://console.groq.com/docs/speech-to-text) — 25 MB free cap and `verbose_json` segment timestamps.
 - [Groq models](https://console.groq.com/docs/models), [quickstart](https://console.groq.com/docs/quickstart), [privacy policy](https://groq.com/privacy-policy) — context windows, SDK name and key variable, and privacy wording we could not reconcile with the data page.
-- [OpenAI pricing](https://developers.openai.com/api/docs/pricing) — paid baseline; no free text-token tier.
+- [OpenAI pricing](https://developers.openai.com/api/docs/pricing) — paid baseline; no free text-token tier, and transcription from $0.0045/min.
+- [OpenAI speech-to-text](https://developers.openai.com/api/docs/guides/speech-to-text) — 25 MB cap, formats, and that `timestamp_granularities[]` is `whisper-1` only.
+- [OWASP API Security Project](https://api-security.owasp.org/) and [API4:2023 Unrestricted Resource Consumption](https://api-security.owasp.org/editions/2023/en/0xa4-unrestricted-resource-consumption) — rate limiting, payload size caps and spending limits, the brief's own reference.
+- [Edison Research, UK Podcast Consumer 2025](https://ssrs.com/insights/the-uk-podcast-consumer-2025/) — 71% ever, 51% last month, 33% last week among UK adults 16+, published 7 August 2025. Edison Research now publishes under SSRS; the old edisonresearch.com URL redirects there.
 - [Streamlit: manage your app](https://docs.streamlit.io/deploy/streamlit-community-cloud/manage-your-app) — resource ceilings, 12-hour sleep, logs.
 - [Streamlit secrets](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/secrets-management) — `st.secrets`; never commit `secrets.toml`.
 - [Streamlit share your app](https://docs.streamlit.io/deploy/streamlit-community-cloud/share-your-app) — app visibility follows the repo.
