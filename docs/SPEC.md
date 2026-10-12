@@ -111,9 +111,17 @@ did not appear:
 
 > Detected: plain text, no timestamps — chapters will have titles but no times
 
-**Decoding.** Bytes are decoded as UTF-8 with the BOM stripped (`utf-8-sig`). On
-`UnicodeDecodeError` we retry once as `cp1252`, and if that fails we reject the file rather than
-guess. All line endings are normalised to `\n`.
+**Decoding**, in this order:
+
+1. If the bytes start with a UTF-16 byte-order mark (`FF FE` or `FE FF`), decode as `utf-16`.
+2. Otherwise UTF-8 with any BOM stripped (`utf-8-sig`).
+3. Otherwise one `cp1252` attempt.
+4. Otherwise reject, naming the encoding problem.
+
+The UTF-16 check has to come first. `cp1252` has only five undefined bytes, so it does not fail on
+UTF-16 input — it decodes it into mojibake, and subtitle files exported on Windows are often
+UTF-16. Trying UTF-8 then cp1252 alone would therefore accept garbage silently and spend a request
+on it. All line endings are then normalised to `\n`.
 
 **VTT and SRT → cues.** Each cue gives a start time, an end time and its text. We parse timestamps
 with a regex for `HH:MM:SS.mmm` (VTT) and `HH:MM:SS,mmm` (SRT), accepting a missing hour field.
@@ -141,10 +149,10 @@ also builds a `dict[str, Segment]` for validation lookups.
 | Empty file or whitespace only | Reject: "That file has no text in it." |
 | Below 200 characters | Reject with the minimum stated |
 | UTF-8 BOM | Stripped by `utf-8-sig` |
-| Non-UTF-8 bytes | One `cp1252` attempt, then reject: encoding named in the message |
+| UTF-16 bytes (either endianness) | Decoded as UTF-16 via the byte-order mark, before cp1252 can turn them into mojibake |
+| Other non-UTF-8 bytes | One `cp1252` attempt, then reject: encoding named in the message |
 | Malformed cue (bad timestamp, missing `-->`) | Skip that cue, count it, continue. If more than 20% of cues are unparsable, reject the file as malformed |
-| Detected as VTT/SRT but zero parsable cues | Fall back to treating it as plain text and say so in the detection line, rather than rejecting a file that does contain readable words |
-| `WEBVTT` header with no cues at all | Reject: "We could not read any subtitle cues from that file." |
+| Detected as VTT/SRT but zero parsable cues | Strip the cue markup and see what prose is left. At or above the 200-character minimum, fall back to plain text and say so in the detection line, rather than rejecting a file that does contain readable words. Below it, reject: "We could not read any subtitle cues from that file." This one rule covers both a file of malformed cues and a file that is nothing but a header and timings |
 | Overlapping or out-of-order cues | Sort by start time before merging. Overlap is left as-is; it does not affect segment ids |
 | Cue with empty text | Dropped before merging |
 | Single cue longer than 120 words | Becomes its own segment; we never split a cue |
@@ -602,7 +610,7 @@ URL or any part of the key.
 | Below 200 characters | "That transcript is 94 characters. We need at least 200 to work with." | Reject |
 | Over the character cap | "That transcript is 184,512 characters. The limit is 150,000 — about 3 hours of speech. Try a shorter section." | Reject, no truncation |
 | Over 2 MB | Streamlit's own uploader message | Never reaches our code |
-| Non-UTF-8 bytes | "We could not read that file's text encoding. Save it as UTF-8 and try again." | One `cp1252` attempt first |
+| Non-UTF-8 bytes | "We could not read that file's text encoding. Save it as UTF-8 and try again." | UTF-16 by byte-order mark, then UTF-8, then one `cp1252` attempt |
 | Detected as VTT/SRT, no readable cues | "We could not read any subtitle cues, so we treated this as plain text — chapters will have no times." | Continue as plain text |
 | Missing secret | "This app is not configured with an API key. The sample episode still works." | Checked at startup; generate buttons disabled, sample button left enabled |
 | 400 with "API key not valid" | "The configured API key was rejected. The sample episode still works." | No retry. Same path as a missing key |

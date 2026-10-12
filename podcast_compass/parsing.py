@@ -50,10 +50,10 @@ INLINE_TAG = re.compile(r"</?[a-zA-Z][^>]*>|<\d{1,3}:\d{2}:\d{2}[.,]\d{1,3}>")
 
 
 def decode_bytes(data: bytes) -> str:
-    """UTF-8 first, then UTF-16 by its BOM, then one cp1252 attempt.
+    """UTF-16 by its byte-order mark, then UTF-8, then one cp1252 attempt.
 
-    UTF-16 is checked explicitly because cp1252 will happily decode UTF-16 bytes into
-    mojibake rather than failing, and subtitle files exported on Windows are often
+    The order is the point. cp1252 has only five undefined bytes, so it decodes UTF-16
+    into mojibake rather than failing, and subtitle files exported on Windows are often
     UTF-16. Silently accepting garbage is worse than rejecting the file.
     """
     if data.startswith((b"\xff\xfe", b"\xfe\xff")):
