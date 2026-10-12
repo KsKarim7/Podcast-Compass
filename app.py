@@ -6,9 +6,11 @@ live in the podcast_compass package so they can be tested without a browser or a
 
 from __future__ import annotations
 
+import time
+
 import streamlit as st
 
-from podcast_compass import config, export, prompts, render, sample
+from podcast_compass import config, export, prompts, quota, render, sample
 from podcast_compass.grounding import GroundedResult, GroundingRejected, validate
 from podcast_compass.llm import LlmError, build_sdk_call, generate
 from podcast_compass.models import SECTION_MODELS, EpisodeResult, replace_section
@@ -33,6 +35,59 @@ PRESET_LABELS = {
     "harder": "Harder questions",
     "custom": "Custom instruction",
 }
+
+
+@st.cache_resource
+def daily_counter() -> quota.DailyCounter:
+    """One counter shared by every session in this process.
+
+    st.cache_resource is documented as "shared across all users, sessions, and reruns",
+    which is the scope we want. Its limits are stated in quota.LIMITATION_NOTE and in
+    the README rather than glossed over.
+    """
+    return quota.DailyCounter()
+
+
+def session_usage() -> quota.SessionUsage:
+    if "usage" not in st.session_state:
+        st.session_state["usage"] = quota.SessionUsage()
+    return st.session_state["usage"]
+
+
+def spend_allowed() -> str | None:
+    """None when an action may proceed, otherwise the message to show.
+
+    Checked before the client is built, so a blocked action costs nothing at all.
+    """
+    decision = quota.check(
+        session_usage(), daily_counter(), monotonic=time.monotonic()
+    )
+    return None if decision.allowed else decision.message
+
+
+def call_with_quota(run):
+    """Reserve the worst case, run the call, then give back what was not used.
+
+    Reserving up front is what stops several sessions starting at once from pushing the
+    day past its limit; settling afterwards means a plain single-request generation is
+    only charged one request.
+    """
+    counter = daily_counter()
+    reserved = quota.REQUESTS_PER_ACTION
+    if not counter.reserve(reserved):
+        return None, quota.DAILY_LIMIT_MESSAGE
+
+    try:
+        raw, outcome = run()
+    except LlmError as exc:
+        # The provider was reached, so at least one request was spent.
+        counter.settle(reserved, 1)
+        quota.record_action(session_usage(), monotonic=time.monotonic())
+        return None, exc.user_message
+
+    counter.settle(reserved, outcome.requests)
+    quota.record_action(session_usage(), monotonic=time.monotonic())
+    return (raw, outcome), None
 
 
 def api_key() -> str | None:
@@ -126,15 +181,22 @@ def run_generation(text: str) -> None:
         st.session_state["error"] = NO_KEY_MESSAGE
         return
 
+    blocked = spend_allowed()
+    if blocked:
+        st.session_state["error"] = blocked
+        return
+
     prompt = prompts.build_generation_prompt(render_for_prompt(segments))
 
     with st.status("Reading the transcript and generating…", expanded=False) as status:
-        try:
-            raw, outcome = generate(build_sdk_call(key), prompt, EpisodeResult)
-        except LlmError as exc:
+        result, error = call_with_quota(
+            lambda: generate(build_sdk_call(key), prompt, EpisodeResult)
+        )
+        if error:
             status.update(label="Generation failed", state="error")
-            st.session_state["error"] = exc.user_message
+            st.session_state["error"] = error
             return
+        raw, outcome = result
         status.update(
             label=f"Generated in {outcome.elapsed_ms / 1000:.1f} s", state="complete"
         )
@@ -152,6 +214,11 @@ def run_revision(section: str, instruction: str) -> None:
         st.session_state["error"] = NO_KEY_MESSAGE
         return
 
+    blocked = spend_allowed()
+    if blocked:
+        st.session_state["error"] = blocked
+        return
+
     raw: EpisodeResult = st.session_state["raw"]
     segments = st.session_state["segments"]
     section_model = SECTION_MODELS[section]
@@ -163,12 +230,14 @@ def run_revision(section: str, instruction: str) -> None:
     )
 
     with st.status(f"Revising the {SECTION_LABELS[section].lower()}…") as status:
-        try:
-            revised, outcome = generate(build_sdk_call(key), prompt, section_model)
-        except LlmError as exc:
+        result, error = call_with_quota(
+            lambda: generate(build_sdk_call(key), prompt, section_model)
+        )
+        if error:
             status.update(label="Revision failed", state="error")
-            st.session_state["error"] = exc.user_message
+            st.session_state["error"] = error
             return
+        revised, outcome = result
         status.update(label=f"Revised in {outcome.elapsed_ms / 1000:.1f} s", state="complete")
 
     # Keep the pre-revision section so undo costs nothing.
@@ -241,6 +310,10 @@ def show_input() -> None:
                 st.session_state["error"] = "Paste a transcript or upload a file first."
             else:
                 run_generation(text)
+
+    st.caption(quota.allowance_caption(session_usage(), daily_counter()))
+    with st.expander("Why this demo has limits"):
+        st.write(quota.LIMITATION_NOTE)
 
     if not has_key:
         st.caption(NO_KEY_MESSAGE)

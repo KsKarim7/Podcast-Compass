@@ -82,6 +82,11 @@ class Outcome:
     used_fallback: bool
     repaired: bool
 
+    @property
+    def requests(self) -> int:
+        """How many provider requests this actually cost, for the daily counter."""
+        return 1 + int(self.used_fallback) + int(self.repaired)
+
 
 def _looks_like_timeout(exc: Exception) -> bool:
     """Timeouts and connection errors arrive without a usable status code.

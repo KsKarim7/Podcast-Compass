@@ -30,6 +30,9 @@ MAX_REVISION_CHARS = 300
 # Past this point a repair retry would push the worst case beyond what anyone will wait for.
 REPAIR_BUDGET_S = 60.0
 
+# Streamlit Community Cloud sleeps an app after this long without traffic.
+SLEEP_HOURS = 12
+
 LIMITS_TEXT = (
     "Paste a transcript, or upload .txt, .vtt or .srt — up to "
     f"{MAX_UPLOAD_MB} MB and {MAX_CHARS:,} characters (about 3 hours of speech). "

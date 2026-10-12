@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 from streamlit.testing.v1 import AppTest
 
-from podcast_compass import config, render, sample
+from podcast_compass import config, quota, render, sample
 
 # AppTest resolves a relative path against the file that calls it, which would look
 # inside tests/, so the path is built from the repo root.
@@ -23,9 +23,42 @@ needs_sample = pytest.mark.skipif(
 )
 
 
+@pytest.fixture(autouse=True)
+def never_reach_the_provider(monkeypatch):
+    """Belt and braces: fail loudly instead of spending a real request.
+
+    A local .streamlit/secrets.toml is visible to AppTest, so without this a test that
+    clicks Generate with valid input would make a real API call on a developer machine
+    and quietly spend free-tier quota. The fixture patches the only door to the SDK;
+    the blanked key below is the second, independent guard.
+    """
+
+    def refuse(*args, **kwargs):
+        raise AssertionError(
+            "an app test tried to build a real SDK client; tests must never call the provider"
+        )
+
+    monkeypatch.setattr("podcast_compass.llm.build_sdk_call", refuse)
+
+
+def fresh(key: str = "") -> AppTest:
+    at = AppTest.from_file(APP_PATH, default_timeout=30)
+    # Overrides any real secrets file, so behaviour does not depend on the machine.
+    at.secrets["GEMINI_API_KEY"] = key
+    return at
+
+
 @pytest.fixture
 def app() -> AppTest:
-    at = AppTest.from_file(APP_PATH, default_timeout=30)
+    at = fresh()
+    at.run()
+    return at
+
+
+@pytest.fixture
+def keyed_app() -> AppTest:
+    """A configured key, for checking enabled state only. Never clicks Generate."""
+    at = fresh("dummy-key-never-used")
     at.run()
     return at
 
@@ -87,7 +120,7 @@ class TestInputValidation:
         button(app, "Generate").click().run()
         assert f"{config.MAX_CHARS + 5:,} characters" in errors(app)
 
-    def test_valid_input_reaches_the_key_check_and_stops(self, app):
+    def test_valid_input_is_parsed_then_stops_at_the_missing_key(self, app):
         app.text_area[0].set_value("fermentation depends on temperature. " * 20).run()
         button(app, "Generate").click().run()
         assert not app.exception
@@ -199,3 +232,52 @@ class TestQuizInteraction:
         button(loaded, "Check answers").click()
         loaded.run()
         assert any("Not quite" in e.value for e in loaded.error)
+
+
+class TestQuotaInTheInterface:
+    def test_allowance_is_shown_up_front(self, app):
+        assert "10 of 10 generations left in this session" in captions(app)
+        assert f"of {quota.MAX_DAILY_REQUESTS} requests left today" in captions(app)
+
+    def test_limitation_is_admitted_in_the_interface(self, app):
+        # The caveat has to be visible to users, not only in the README.
+        body = " ".join(m.value for m in app.markdown)
+        assert "not a hard limit" in body or "not a hard limit" in str(app.expander)
+
+    def test_generate_is_enabled_when_a_key_is_configured(self, keyed_app):
+        assert button(keyed_app, "Generate").disabled is False
+        assert "not configured with an API key" not in captions(keyed_app)
+
+    def test_session_cap_blocks_without_calling_the_provider(self, keyed_app):
+        # Pre-spend the session allowance, then try again. The autouse fixture would
+        # fail this test if the guard let the call through.
+        keyed_app.session_state["usage"] = quota.SessionUsage(
+            actions=quota.MAX_SESSION_ACTIONS, last_action_at=None
+        )
+        keyed_app.text_area[0].set_value("fermentation depends on temperature. " * 20).run()
+        button(keyed_app, "Generate").click().run()
+        assert not keyed_app.exception
+        assert "this session" in errors(keyed_app)
+
+    def test_spacing_rule_blocks_a_rapid_second_action(self, keyed_app):
+        import time as _time
+
+        keyed_app.session_state["usage"] = quota.SessionUsage(
+            actions=1, last_action_at=_time.monotonic()
+        )
+        keyed_app.text_area[0].set_value("fermentation depends on temperature. " * 20).run()
+        button(keyed_app, "Generate").click().run()
+        assert quota.TOO_SOON_MESSAGE in errors(keyed_app)
+
+
+class TestTheGuardItself:
+    def test_build_sdk_call_is_patched_in_these_tests(self, app):
+        # Proves the autouse fixture is active: if it ever stops working, this fails
+        # rather than a later test quietly spending a real request.
+        from podcast_compass import llm
+
+        with pytest.raises(AssertionError, match="never call the provider"):
+            llm.build_sdk_call("dummy")
+
+    def test_the_key_is_blanked_regardless_of_a_local_secrets_file(self, app):
+        assert app.secrets["GEMINI_API_KEY"] == ""
