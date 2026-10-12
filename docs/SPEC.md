@@ -270,8 +270,9 @@ verification, so anything it fabricates is dropped before a user sees it.
 2. **Segment ids exist.** Any `segment_id` not in the lookup fails its item.
 3. **Quote appears in the cited segment.** Normalise both sides, then substring test.
 4. **Chapter order.** Chapter `start_segment_id`s must be strictly increasing in segment order.
-   A chapter out of order is moved into order if that leaves the sequence valid, and flagged
-   otherwise; chapters are never reordered silently without the flag.
+   A chapter that starts at or before the previous one is flagged `unverified` and left where the
+   model put it. We do not reorder: moving a chapter changes what the model said, and the user
+   cannot see that it happened. Flagging is both simpler and more honest.
 5. **Timestamps attached by us.** For each chapter that passed stages 2–4, read
    `segments[start_segment_id].start` and attach it. A chapter flagged `unverified` gets **no
    timestamp**, because the segment it claims to start at is exactly the thing we could not confirm.
@@ -286,6 +287,16 @@ verification, so anything it fabricates is dropped before a user sees it.
 
 Then `normalised_quote in normalised_segment_text`. This forgives punctuation and spacing
 differences from the model while still requiring the words to be present in that segment, in order.
+
+Two limits of the rule, both deliberate and both tested:
+
+- **A quote under 3 words fails.** A two-word "quote" matches almost any segment, so it would pass
+  the check while proving nothing.
+- **Punctuation *style* is folded, punctuation *choice* is not.** Curly quotes, dashes and
+  non-breaking spaces are normalised, but a model that writes "the timing - not the recipe" where
+  the transcript says "the timing, not the recipe" fails. Loosening this to strip punctuation
+  altogether would start accepting quotes that are not what the transcript says, so it stays strict
+  until we see real quotes being dropped for this reason.
 We do not fuzzy-match on edit distance: that would start accepting paraphrase, which is the thing we
 are trying to catch.
 
@@ -298,11 +309,18 @@ are trying to catch.
 | Chapter | Kept, flagged `unverified`, no timestamp | Dropping one leaves a hole in navigation; the user is told which one we could not confirm |
 | Theme | Kept | Themes carry no evidence and make no factual claim beyond the summary |
 
-**Whole-response rejection.** The response is rejected, and the client's repair retry is used, when
-any of these is true: the summary is empty; fewer than 2 chapters survive; no quiz question survives;
-or more than half of all evidence-carrying items failed. The last one is the signal that matters —
-scattered failures are normal, but a majority failure means the model was not working from the
-transcript.
+**Whole-response rejection.** The response is rejected when any of these is true: the summary is
+empty; fewer than 2 chapters are verified; no quiz question survives; or more than half of all
+evidence-carrying items failed. The last one is the signal that matters — scattered failures are
+normal, but a majority failure means the model was not working from the transcript. The threshold is
+*more than* half, so 4 failures out of 8 items is still shown.
+
+**A rejection does not trigger an automatic retry.** The model call already succeeded and returned
+well-formed JSON, so a second call would spend another request from a daily allowance of 500 with no
+reason to expect a better result. Instead the UI shows the message from section 11 and a **Try
+again** button, and the user decides. This keeps the repair retry in section 7 for its one real
+purpose — output that would not parse at all — and keeps quota spending under the user's control
+rather than the code's.
 
 Validation results are returned as a report (`counts of passed, dropped, flagged`) so the UI can
 show what was removed and the notes can quote real numbers.
@@ -402,9 +420,10 @@ The fallback is tried **once**. If it also fails, the user gets the error for wh
 the fallback hit. The 503 we observed on `gemini-3.1-flash-lite` during research is why this path
 exists and is tested.
 
-**Repair retry.** If `model_validate_json` raises, or the whole response is rejected by section 6,
-we send the request once more with a short preamble: the previous output was not valid JSON for the
-schema, return only JSON matching the schema. That is one extra request against quota. A second
+**Repair retry.** If `model_validate_json` raises — and only then — we send the request once more
+with a short preamble: the previous output was not valid JSON for the schema, return only JSON
+matching the schema. A grounding rejection from section 6 does **not** come through here; that
+output parsed fine, and the user decides whether to spend another request. That is one extra request against quota. A second
 failure produces a user-facing error and no partial result. The repair is skipped if more than 60
 seconds of the budget has already gone, so a slow generation cannot be followed by an equally slow
 repair.
@@ -619,7 +638,7 @@ URL or any part of the key.
 | 503, 500, 504 | "The model is busy right now. We tried a second model and it is also unavailable — please try again in a minute." | SDK retries within our bounds, then the fallback |
 | Timeout | "That took longer than 45 seconds, so we stopped waiting. A shorter transcript will be faster." | Classified transient, fallback tried once |
 | Malformed JSON after the repair retry | "The model returned something we could not read, twice. Please try again." | No partial result is shown |
-| Grounding rejects the whole response | "We could not verify enough of that result against your transcript, so we are not showing it. Please try again." | The repair retry runs first; this is the second failure |
+| Grounding rejects the whole response | "We could not verify enough of that result against your transcript, so we are not showing it." plus a **Try again** button | No automatic retry: the output parsed, so a second call is the user's choice to make, not ours |
 | Daily cap reached | "This demo is limited to 400 generations a day to stay inside the free tier. The sample episode still works." | Our own counter, before any call |
 | Per-session cap reached | "You have run 10 generations in this session, which is this demo's limit." | Our own counter |
 | Anything unclassified | "Something went wrong on our side. Please try again." | Log `type(exc).__name__`, no retry |
