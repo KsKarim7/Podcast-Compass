@@ -5,9 +5,10 @@ Nothing here imports streamlit. app.py decides which widget shows each string.
 
 from __future__ import annotations
 
-from .grounding import GroundedResult, VerifiedChapter
+from .grounding import VerifiedChapter
 from .parsing import ParsedTranscript
 from .segments import format_timestamp
+from .text import plural
 
 NO_TIMESTAMP_NOTICE = (
     "This transcript has no timestamps, so chapters show titles only. Upload a .vtt or "
@@ -39,9 +40,9 @@ def detection_line(parsed: ParsedTranscript, segment_count: int) -> str:
     else:
         line = f"Detected: {name}, no timestamps"
 
-    line += f" · {segment_count} segments"
+    line += f" · {plural(segment_count, 'segment')}"
     if parsed.malformed_cues:
-        line += f" · {parsed.malformed_cues} unreadable cue(s) skipped"
+        line += f" · {plural(parsed.malformed_cues, 'unreadable cue')} skipped"
     return line
 
 
@@ -60,40 +61,3 @@ def evidence_caption(segment_id: str, quote: str) -> str:
 
 def answer_feedback(chosen_index: int, correct_index: int) -> str:
     return "Correct" if chosen_index == correct_index else "Not quite"
-
-
-def as_markdown(result: GroundedResult, *, title: str = "Episode companion") -> str:
-    """The copy/download payload. One function so both buttons agree."""
-    lines = [f"# {title}", "", "## Summary", "", result.summary, "", "## Themes", ""]
-    lines += [f"- {theme}" for theme in result.themes]
-    lines += ["", "## Key takeaways", ""]
-    for takeaway in result.takeaways:
-        lines.append(f"- {takeaway.text}")
-        lines.append(
-            f"  - Evidence {evidence_caption(takeaway.evidence.segment_id, takeaway.evidence.quote)}"
-        )
-    lines += ["", "## Chapters", ""]
-    if not result.has_timestamps:
-        lines += [f"_{NO_TIMESTAMP_NOTICE}_", ""]
-    for item in result.chapters:
-        lines.append(f"### {chapter_heading(item)}")
-        lines.append("")
-        lines.append(item.chapter.explanation)
-        lines.append("")
-    lines += ["## Quiz", ""]
-    for number, question in enumerate(result.quiz, 1):
-        lines.append(f"**{number}. {question.question}**")
-        lines.append("")
-        for index, option in enumerate(question.options):
-            marker = "x" if index == question.correct_index else " "
-            lines.append(f"- [{marker}] {option}")
-        lines.append("")
-        lines.append(f"Answer: {question.options[question.correct_index]}")
-        lines.append("")
-        lines.append(question.explanation)
-        lines.append("")
-        lines.append(
-            f"Evidence {evidence_caption(question.evidence.segment_id, question.evidence.quote)}"
-        )
-        lines.append("")
-    return "\n".join(lines).strip() + "\n"

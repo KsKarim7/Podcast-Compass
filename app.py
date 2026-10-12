@@ -1,18 +1,19 @@
 """Podcast Compass: turn a transcript into an overview, chapters and a quiz.
 
-This module is layout and state only. Parsing, validation and the provider call live in
-the podcast_compass package so they can be tested without a browser or a key.
+This module is layout and state only. Parsing, validation, export and the provider call
+live in the podcast_compass package so they can be tested without a browser or a key.
 """
 
 from __future__ import annotations
 
 import streamlit as st
 
-from podcast_compass import config, render
-from podcast_compass.demo import DEMO_VTT, demo_result
+from podcast_compass import config, export, prompts, render, sample
 from podcast_compass.grounding import GroundedResult, GroundingRejected, validate
+from podcast_compass.llm import LlmError, build_sdk_call, generate
+from podcast_compass.models import SECTION_MODELS, EpisodeResult, replace_section
 from podcast_compass.parsing import InputError, decode_bytes, parse_transcript
-from podcast_compass.segments import build_segments, segment_lookup
+from podcast_compass.segments import build_segments, render_for_prompt, segment_lookup
 
 st.set_page_config(page_title="Podcast Compass", page_icon="🎧", layout="centered")
 
@@ -20,50 +21,186 @@ REJECTION_MESSAGE = (
     "We could not verify enough of that result against your transcript, so we are not "
     "showing it."
 )
+NO_KEY_MESSAGE = (
+    "This app is not configured with an API key, so generation is unavailable. "
+    "The example episode still works."
+)
+SECTION_LABELS = {"overview": "Overview", "chapters": "Chapters", "quiz": "Quiz"}
+PRESET_LABELS = {
+    "shorter": "Shorter",
+    "simpler": "Simpler",
+    "more_detailed": "More detailed",
+    "harder": "Harder questions",
+    "custom": "Custom instruction",
+}
+
+
+def api_key() -> str | None:
+    """Streamlit raises if no secrets file exists at all, so this stays defensive."""
+    try:
+        key = st.secrets.get("GEMINI_API_KEY")
+    except Exception:
+        return None
+    return key or None
 
 
 def init_state() -> None:
+    st.session_state.setdefault("raw", None)
     st.session_state.setdefault("result", None)
+    st.session_state.setdefault("segments", None)
     st.session_state.setdefault("detection", None)
-    st.session_state.setdefault("rejection", None)
-    st.session_state.setdefault("answers", {})
+    st.session_state.setdefault("notice", None)
+    st.session_state.setdefault("error", None)
+    st.session_state.setdefault("previous", {})
     st.session_state.setdefault("checked", False)
+    st.session_state.setdefault("source", None)
 
 
-def clear_result() -> None:
-    st.session_state["result"] = None
-    st.session_state["detection"] = None
-    st.session_state["rejection"] = None
-    st.session_state["answers"] = {}
+def clear_all() -> None:
+    for key in ("raw", "result", "segments", "detection", "notice", "error", "source"):
+        st.session_state[key] = None
+    st.session_state["previous"] = {}
     st.session_state["checked"] = False
 
 
-def load_demo() -> None:
-    """Render the built-in example with no API call."""
-    clear_result()
-    parsed = parse_transcript(DEMO_VTT)
-    segments = build_segments(parsed)
+def clear_answers(count: int) -> None:
+    st.session_state["checked"] = False
+    for number in range(count):
+        st.session_state.pop(f"answer_{number}", None)
+
+
+def store(raw: EpisodeResult, segments, detection: str, source: str) -> None:
+    """Validate and keep both the raw result and the grounded view.
+
+    The raw result is what a revision merges into, and the grounded view is what the
+    page renders. Keeping both means a revision is re-validated as a whole.
+    """
+    lookup = segment_lookup(segments)
     try:
-        result = validate(demo_result(), segment_lookup(segments))
+        grounded = validate(raw, lookup)
     except GroundingRejected as exc:
-        st.session_state["rejection"] = str(exc)
+        st.session_state["error"] = f"{REJECTION_MESSAGE} ({exc})"
         return
-    st.session_state["result"] = result
+    st.session_state["raw"] = raw
+    st.session_state["result"] = grounded
+    st.session_state["segments"] = segments
+    st.session_state["detection"] = detection
+    st.session_state["source"] = source
+
+
+def load_sample() -> None:
+    clear_all()
+    try:
+        bundle = sample.load_bundle()
+    except FileNotFoundError as exc:
+        st.session_state["error"] = str(exc)
+        return
+    parsed = parse_transcript(bundle.transcript)
+    segments = build_segments(parsed)
+    store(
+        bundle.result,
+        segments,
+        render.detection_line(parsed, len(segments)),
+        source="sample",
+    )
+    st.session_state["notice"] = bundle.label
+
+
+def run_generation(text: str) -> None:
+    clear_all()
+
+    # Input is checked first so a bad file is reported as a bad file, and the detection
+    # line is shown even when generation cannot run, which tells the user something
+    # useful about their transcript either way.
+    try:
+        parsed = parse_transcript(text)
+    except InputError as exc:
+        st.session_state["error"] = str(exc)
+        return
+
+    segments = build_segments(parsed)
     st.session_state["detection"] = render.detection_line(parsed, len(segments))
+
+    key = api_key()
+    if key is None:
+        st.session_state["error"] = NO_KEY_MESSAGE
+        return
+
+    prompt = prompts.build_generation_prompt(render_for_prompt(segments))
+
+    with st.status("Reading the transcript and generating…", expanded=False) as status:
+        try:
+            raw, outcome = generate(build_sdk_call(key), prompt, EpisodeResult)
+        except LlmError as exc:
+            status.update(label="Generation failed", state="error")
+            st.session_state["error"] = exc.user_message
+            return
+        status.update(
+            label=f"Generated in {outcome.elapsed_ms / 1000:.1f} s", state="complete"
+        )
+
+    store(raw, segments, st.session_state["detection"], source="live")
+    if outcome.used_fallback:
+        st.session_state["notice"] = (
+            f"The first model was unavailable, so this came from {outcome.model}."
+        )
+
+
+def run_revision(section: str, instruction: str) -> None:
+    key = api_key()
+    if key is None:
+        st.session_state["error"] = NO_KEY_MESSAGE
+        return
+
+    raw: EpisodeResult = st.session_state["raw"]
+    segments = st.session_state["segments"]
+    section_model = SECTION_MODELS[section]
+    prompt = prompts.build_revision_prompt(
+        section,
+        section_model.model_validate(raw.model_dump()).model_dump_json(indent=2),
+        instruction,
+        render_for_prompt(segments),
+    )
+
+    with st.status(f"Revising the {SECTION_LABELS[section].lower()}…") as status:
+        try:
+            revised, outcome = generate(build_sdk_call(key), prompt, section_model)
+        except LlmError as exc:
+            status.update(label="Revision failed", state="error")
+            st.session_state["error"] = exc.user_message
+            return
+        status.update(label=f"Revised in {outcome.elapsed_ms / 1000:.1f} s", state="complete")
+
+    # Keep the pre-revision section so undo costs nothing.
+    previous = dict(st.session_state["previous"])
+    previous[section] = section_model.model_validate(raw.model_dump())
+    merged = replace_section(raw, section, revised)
+
+    st.session_state["error"] = None
+    store(merged, segments, st.session_state["detection"], st.session_state["source"])
+    if st.session_state["result"] is not None:
+        st.session_state["previous"] = previous
+        if section == "quiz":
+            clear_answers(len(st.session_state["result"].quiz))
+
+
+def undo(section: str) -> None:
+    """A state swap, not a request."""
+    previous = dict(st.session_state["previous"])
+    restored = previous.pop(section, None)
+    if restored is None:
+        return
+    raw = replace_section(st.session_state["raw"], section, restored)
+    store(raw, st.session_state["segments"], st.session_state["detection"], st.session_state["source"])
+    st.session_state["previous"] = previous
+    if section == "quiz" and st.session_state["result"] is not None:
+        clear_answers(len(st.session_state["result"].quiz))
 
 
 def read_input(pasted: str, upload) -> str:
     if upload is not None:
         return decode_bytes(upload.getvalue())
     return pasted
-
-
-def prepare(text: str) -> tuple[str, int]:
-    """Parse and segment, returning the detection line and the segment count."""
-    parsed = parse_transcript(text)
-    segments = build_segments(parsed)
-    st.session_state["segments"] = segments
-    return render.detection_line(parsed, len(segments)), len(segments)
 
 
 def show_input() -> None:
@@ -86,35 +223,27 @@ def show_input() -> None:
     st.caption(config.LIMITS_TEXT)
 
     if pasted:
-        used = len(pasted.strip())
-        st.caption(f"{used:,} / {config.MAX_CHARS:,} characters")
+        st.caption(f"{len(pasted.strip()):,} / {config.MAX_CHARS:,} characters")
 
+    has_key = api_key() is not None
     left, right = st.columns(2)
     with left:
         st.button(
             "Load example episode",
-            on_click=load_demo,
-            help="Renders a built-in example. Makes no API call.",
+            on_click=load_sample,
+            help="Shows a result generated earlier. Makes no API call.",
             width="stretch",
         )
     with right:
-        if st.button("Check this transcript", width="stretch"):
-            handle_check(pasted, upload)
+        if st.button("Generate", width="stretch", type="primary"):
+            text = read_input(pasted, upload)
+            if not text.strip():
+                st.session_state["error"] = "Paste a transcript or upload a file first."
+            else:
+                run_generation(text)
 
-
-def handle_check(pasted: str, upload) -> None:
-    """Parse and segment only. Generation arrives with the model call."""
-    clear_result()
-    try:
-        text = read_input(pasted, upload)
-        if not text.strip():
-            raise InputError("Paste a transcript or upload a file first.")
-        detection, count = prepare(text)
-    except InputError as exc:
-        st.session_state["rejection"] = str(exc)
-        return
-    st.session_state["detection"] = detection
-    st.toast(f"Read {count} segments. Generation is not wired up yet.")
+    if not has_key:
+        st.caption(NO_KEY_MESSAGE)
 
 
 def show_overview(result: GroundedResult) -> None:
@@ -129,9 +258,7 @@ def show_overview(result: GroundedResult) -> None:
     for takeaway in result.takeaways:
         st.markdown(f"- {takeaway.text}")
         st.caption(
-            render.evidence_caption(
-                takeaway.evidence.segment_id, takeaway.evidence.quote
-            )
+            render.evidence_caption(takeaway.evidence.segment_id, takeaway.evidence.quote)
         )
 
 
@@ -170,30 +297,124 @@ def show_quiz(result: GroundedResult) -> None:
 
     for number, question in enumerate(result.quiz):
         chosen = st.session_state.get(f"answer_{number}")
-        if chosen is None:
-            st.warning(f"{number + 1}. Not answered")
-            continue
-        verdict = render.answer_feedback(chosen, question.correct_index)
         correct = question.options[question.correct_index]
-        if verdict == "Correct":
+        if chosen is None:
+            # Neutral: not answering is not a mistake, but the answer is still useful.
+            st.markdown(f"**{number + 1}. Not answered** — the answer is {correct}")
+        elif chosen == question.correct_index:
             st.success(f"{number + 1}. Correct — {correct}")
         else:
             st.error(f"{number + 1}. Not quite. The answer is {correct}")
         st.write(question.explanation)
         st.caption(
-            render.evidence_caption(
-                question.evidence.segment_id, question.evidence.quote
-            )
+            render.evidence_caption(question.evidence.segment_id, question.evidence.quote)
         )
 
     if st.button("Reset quiz"):
-        st.session_state["checked"] = False
-        for number in range(len(result.quiz)):
-            st.session_state.pop(f"answer_{number}", None)
+        clear_answers(len(result.quiz))
         st.rerun()
 
 
-def show_results() -> None:
+def show_revision(result: GroundedResult) -> None:
+    st.subheader("Revise one section")
+    st.caption(
+        "Only the section you choose is regenerated. The rest of the result is left "
+        "exactly as it is."
+    )
+
+    section = st.selectbox(
+        "Section",
+        options=list(SECTION_LABELS),
+        format_func=lambda key: SECTION_LABELS[key],
+        key="revise_section",
+    )
+    preset = st.radio(
+        "Change",
+        options=list(PRESET_LABELS),
+        format_func=lambda key: PRESET_LABELS[key],
+        horizontal=True,
+        key="revise_preset",
+    )
+    instruction = prompts.PRESET_INSTRUCTIONS.get(preset, "")
+    if preset == "custom":
+        instruction = st.text_input(
+            "What should change?",
+            max_chars=config.MAX_REVISION_CHARS,
+            placeholder="e.g. focus on the practical advice",
+            key="revise_custom",
+        )
+
+    has_key = api_key() is not None
+    left, right = st.columns(2)
+    with left:
+        disabled = not has_key or (preset == "custom" and not instruction.strip())
+        if st.button("Revise this section", disabled=disabled, width="stretch"):
+            run_revision(section, instruction)
+            st.rerun()
+    with right:
+        can_undo = section in st.session_state["previous"]
+        if st.button(
+            f"Undo last change to {SECTION_LABELS[section].lower()}",
+            disabled=not can_undo,
+            width="stretch",
+            help="Restores the previous version. Makes no API call.",
+        ):
+            undo(section)
+            st.rerun()
+
+
+def show_output(result: GroundedResult) -> None:
+    st.subheader("Copy or download")
+    markdown = export.as_markdown(result)
+    generated_at = ""
+    model = ""
+    if st.session_state["source"] == "sample" and sample.result_exists():
+        bundle = sample.load_bundle()
+        generated_at, model = bundle.generated_at, bundle.model
+    payload = export.as_json(result, model=model, generated_at=generated_at)
+
+    st.caption("Use the copy button in the top-right of the box below.")
+    st.code(markdown, language="markdown", height=300)
+
+    left, right = st.columns(2)
+    with left:
+        st.download_button(
+            "Download Markdown",
+            data=markdown,
+            file_name="episode.md",
+            mime="text/markdown",
+            on_click="ignore",
+            width="stretch",
+        )
+    with right:
+        st.download_button(
+            "Download JSON",
+            data=payload,
+            file_name="episode.json",
+            mime="application/json",
+            on_click="ignore",
+            width="stretch",
+        )
+
+
+def show_messages() -> None:
+    if st.session_state["error"]:
+        st.error(st.session_state["error"])
+        # No automatic retry: a call that returned parseable output already spent a
+        # request, so spending another is the user's decision rather than ours.
+        if st.button("Try again"):
+            clear_all()
+            st.rerun()
+    if st.session_state["notice"]:
+        st.info(st.session_state["notice"], icon="ℹ️")
+
+
+def main() -> None:
+    init_state()
+    show_input()
+    st.divider()
+    show_messages()
+
     if st.session_state["detection"]:
         st.caption(st.session_state["detection"])
 
@@ -205,26 +426,10 @@ def show_results() -> None:
     show_overview(result)
     show_chapters(result)
     show_quiz(result)
-
-
-def show_rejection() -> None:
-    reason = st.session_state["rejection"]
-    if not reason:
-        return
-    st.error(f"{REJECTION_MESSAGE} ({reason})")
-    # No automatic retry: the call already succeeded, so spending another request is
-    # the user's decision rather than ours.
-    if st.button("Try again"):
-        clear_result()
-        st.rerun()
-
-
-def main() -> None:
-    init_state()
-    show_input()
     st.divider()
-    show_rejection()
-    show_results()
+    show_revision(result)
+    st.divider()
+    show_output(result)
 
 
 main()

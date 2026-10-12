@@ -1,19 +1,17 @@
-from podcast_compass import render
-from podcast_compass.demo import DEMO_VTT, demo_result
-from podcast_compass.grounding import validate
+import pytest
+
+from podcast_compass import export, render, sample
+from podcast_compass.grounding import VerifiedChapter, validate
 from podcast_compass.models import Chapter, Evidence
 from podcast_compass.parsing import parse_transcript
 from podcast_compass.segments import build_segments, segment_lookup
-import pytest
-
-from podcast_compass.grounding import VerifiedChapter
-
+from tests.fixtures import handwritten_result
 
 @pytest.fixture
 def grounded_demo():
-    parsed = parse_transcript(DEMO_VTT)
+    parsed = parse_transcript(sample.load_transcript())
     segments = build_segments(parsed)
-    return parsed, segments, validate(demo_result(), segment_lookup(segments))
+    return parsed, segments, validate(handwritten_result(), segment_lookup(segments))
 
 
 def chapter(title="Timing") -> Chapter:
@@ -69,7 +67,16 @@ class TestDetectionLine:
         )
         parsed = parse_transcript(f"WEBVTT\n\n{good}\n\nstray block with no arrow\n")
         line = render.detection_line(parsed, 1)
-        assert "1 unreadable cue(s) skipped" in line
+        assert "1 unreadable cue skipped" in line
+
+    def test_counts_are_singular_when_there_is_one(self):
+        parsed = parse_transcript("word " * 100)
+        assert "1 segment ·" in render.detection_line(parsed, 1) + " ·"
+        assert "1 segments" not in render.detection_line(parsed, 1)
+
+    def test_counts_are_plural_when_there_are_several(self):
+        parsed = parse_transcript("word " * 100)
+        assert "3 segments" in render.detection_line(parsed, 3)
 
 
 class TestChapterHeading:
@@ -92,50 +99,6 @@ class TestAnswerFeedback:
     def test_correct_and_incorrect(self):
         assert render.answer_feedback(2, 2) == "Correct"
         assert render.answer_feedback(1, 2) == "Not quite"
-
-
-class TestMarkdownExport:
-    def test_contains_every_section(self, grounded_demo):
-        _, _, result = grounded_demo
-        md = render.as_markdown(result)
-        for heading in ("## Summary", "## Themes", "## Key takeaways", "## Chapters", "## Quiz"):
-            assert heading in md
-
-    def test_quotes_and_segment_ids_survive(self, grounded_demo):
-        _, _, result = grounded_demo
-        md = render.as_markdown(result)
-        for takeaway in result.takeaways:
-            assert takeaway.evidence.quote in md
-            assert takeaway.evidence.segment_id in md
-
-    def test_timestamps_appear_in_chapter_headings(self, grounded_demo):
-        _, _, result = grounded_demo
-        md = render.as_markdown(result)
-        assert "[00:00:00]" in md
-        assert "[00:01:10]" in md
-
-    def test_correct_answer_is_marked(self, grounded_demo):
-        _, _, result = grounded_demo
-        md = render.as_markdown(result)
-        first = result.quiz[0]
-        assert f"- [x] {first.options[first.correct_index]}" in md
-
-    def test_no_timestamp_notice_included_for_plain_text(self):
-        parsed = parse_transcript(DEMO_VTT)
-        segments = build_segments(parsed)
-        untimed = {
-            sid: segment.__class__(id=sid, text=segment.text, start=None, end=None)
-            for sid, segment in segment_lookup(segments).items()
-        }
-        result = validate(demo_result(), untimed)
-        md = render.as_markdown(result)
-        assert render.NO_TIMESTAMP_NOTICE in md
-
-    def test_ends_with_a_single_newline(self, grounded_demo):
-        _, _, result = grounded_demo
-        md = render.as_markdown(result)
-        assert md.endswith("\n")
-        assert not md.endswith("\n\n")
 
 
 class TestNotices:

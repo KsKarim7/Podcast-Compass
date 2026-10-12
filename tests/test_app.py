@@ -1,8 +1,9 @@
 """The app script itself, run through Streamlit's AppTest.
 
-This catches what unit tests cannot: an invalid widget argument, a state key that is
-read before it is set, or an exception on first load. It makes no API call, because the
-example episode is rendered from the built-in fixture.
+This catches what unit tests cannot: an invalid widget argument, a state key read before
+it is set, or an exception on first load. No API call is made anywhere here — AppTest has
+no secrets file, so the key lookup returns None and the generate path stops at that
+boundary, which is itself worth asserting.
 """
 
 from pathlib import Path
@@ -10,11 +11,16 @@ from pathlib import Path
 import pytest
 from streamlit.testing.v1 import AppTest
 
-from podcast_compass import config, render
+from podcast_compass import config, render, sample
 
 # AppTest resolves a relative path against the file that calls it, which would look
 # inside tests/, so the path is built from the repo root.
 APP_PATH = str(Path(__file__).resolve().parent.parent / "app.py")
+
+needs_sample = pytest.mark.skipif(
+    not sample.result_exists(),
+    reason="run tools/generate_sample.py to create samples/sample_results.json",
+)
 
 
 @pytest.fixture
@@ -31,6 +37,14 @@ def button(at: AppTest, label: str):
     raise AssertionError(f"no button labelled {label!r}; found {[b.label for b in at.button]}")
 
 
+def captions(at: AppTest) -> str:
+    return " ".join(c.value for c in at.caption)
+
+
+def errors(at: AppTest) -> str:
+    return " ".join(e.value for e in at.error)
+
+
 class TestFirstLoad:
     def test_runs_without_exceptions(self, app):
         assert not app.exception
@@ -42,18 +56,62 @@ class TestFirstLoad:
         assert any(render.DATA_USE_NOTICE in w.value for w in app.warning)
 
     def test_limits_text_comes_from_config(self, app):
-        assert any(config.LIMITS_TEXT in c.value for c in app.caption)
+        assert config.LIMITS_TEXT in captions(app)
 
-    def test_upload_and_paste_are_both_offered(self, app):
-        assert app.text_area
-        # The uploader is not exposed as its own AppTest accessor, so assert the
-        # script produced no exception while declaring it and that the cap is ours.
-        assert config.MAX_UPLOAD_MB == 2
+    def test_both_buttons_offered(self, app):
+        labels = [b.label for b in app.button]
+        assert "Load example episode" in labels
+        assert "Generate" in labels
+
+    def test_says_generation_is_unavailable_without_a_key(self, app):
+        # AppTest has no secrets file, which is the no-key case.
+        assert "not configured with an API key" in captions(app)
 
     def test_no_results_before_anything_is_loaded(self, app):
         assert not app.subheader
 
 
+class TestInputValidation:
+    def test_empty_submission_is_rejected(self, app):
+        button(app, "Generate").click().run()
+        assert not app.exception
+        assert "Paste a transcript or upload a file first." in errors(app)
+
+    def test_short_transcript_is_rejected_with_the_real_count(self, app):
+        app.text_area[0].set_value("too short").run()
+        button(app, "Generate").click().run()
+        assert "9 characters" in errors(app)
+
+    def test_oversized_transcript_is_rejected_with_the_real_count(self, app):
+        app.text_area[0].set_value("x" * (config.MAX_CHARS + 5)).run()
+        button(app, "Generate").click().run()
+        assert f"{config.MAX_CHARS + 5:,} characters" in errors(app)
+
+    def test_valid_input_reaches_the_key_check_and_stops(self, app):
+        app.text_area[0].set_value("fermentation depends on temperature. " * 20).run()
+        button(app, "Generate").click().run()
+        assert not app.exception
+        # Detection is still reported, so the user learns about their file either way.
+        assert "plain text" in captions(app)
+        assert "no timestamps" in captions(app)
+        assert "not configured with an API key" in errors(app)
+
+    def test_character_counter_appears_while_typing(self, app):
+        app.text_area[0].set_value("abc").run()
+        assert f"3 / {config.MAX_CHARS:,} characters" in captions(app)
+
+
+class TestMissingSample:
+    @pytest.mark.skipif(
+        sample.result_exists(), reason="only applies before the sample is generated"
+    )
+    def test_example_button_explains_what_to_run(self, app):
+        button(app, "Load example episode").click().run()
+        assert not app.exception
+        assert "generate_sample.py" in errors(app)
+
+
+@needs_sample
 class TestExampleEpisode:
     @pytest.fixture
     def loaded(self, app) -> AppTest:
@@ -63,82 +121,81 @@ class TestExampleEpisode:
     def test_loads_without_exceptions(self, loaded):
         assert not loaded.exception
 
-    def test_renders_all_three_sections(self, loaded):
+    def test_renders_every_section(self, loaded):
         headings = [s.value for s in loaded.subheader]
-        assert headings == ["Overview", "Chapters", "Quiz"]
+        assert headings == ["Overview", "Chapters", "Quiz", "Revise one section", "Copy or download"]
 
     def test_detection_line_reports_webvtt_and_cues(self, loaded):
-        captions = " ".join(c.value for c in loaded.caption)
-        assert "WebVTT" in captions
-        assert "12 cues" in captions
-        assert "timestamps available" in captions
+        assert "WebVTT" in captions(loaded)
+        assert "12 cues" in captions(loaded)
+        assert "timestamps available" in captions(loaded)
 
-    def test_validation_summary_shows_real_counts(self, loaded):
-        captions = " ".join(c.value for c in loaded.caption)
-        assert "Kept 4 of 4 takeaways" in captions
+    def test_pre_generated_label_is_shown(self, loaded):
+        infos = " ".join(i.value for i in loaded.info)
+        assert "Pre-generated with this app on" in infos
+        assert "No API call was made just now." in infos
+
+    def test_validation_summary_is_shown(self, loaded):
+        assert "Kept" in captions(loaded)
 
     def test_chapter_timestamps_rendered(self, loaded):
         body = " ".join(m.value for m in loaded.markdown)
-        assert "[00:00:00]" in body
-        assert "[00:01:10]" in body
-        assert "[00:02:21]" in body
+        assert "[00:" in body
 
-    def test_evidence_quotes_are_shown_not_hidden(self, loaded):
-        captions = " ".join(c.value for c in loaded.caption)
-        assert "The limiting factor in a city is water, not flowers" in captions
+    def test_revision_controls_present(self, loaded):
+        assert loaded.selectbox
+        labels = [b.label for b in loaded.button]
+        assert "Revise this section" in labels
+        assert any(label.startswith("Undo last change") for label in labels)
 
-    def test_quiz_is_a_form_with_one_radio_per_question(self, loaded):
-        assert len(loaded.radio) == 4
+    def test_undo_is_disabled_before_any_revision(self, loaded):
+        undo = [b for b in loaded.button if b.label.startswith("Undo last change")][0]
+        assert undo.disabled is True
 
-    def test_no_timestamp_notice_absent_for_a_vtt_source(self, loaded):
-        infos = " ".join(i.value for i in loaded.info)
-        assert render.NO_TIMESTAMP_NOTICE not in infos
+    def test_revise_is_disabled_without_a_key(self, loaded):
+        revise = button(loaded, "Revise this section")
+        assert revise.disabled is True
+
+    def test_download_buttons_offered(self, loaded):
+        labels = [b.label for b in loaded.download_button]
+        assert "Download Markdown" in labels
+        assert "Download JSON" in labels
+
+    def test_markdown_is_shown_in_a_copyable_block(self, loaded):
+        assert loaded.code
+        assert "## Summary" in loaded.code[0].value
 
 
+@needs_sample
 class TestQuizInteraction:
     @pytest.fixture
     def loaded(self, app) -> AppTest:
         button(app, "Load example episode").click().run()
         return app
 
-    def test_answering_correctly_is_reported(self, loaded):
-        # A widget inside st.form only commits its value when the form is submitted,
-        # so the value and the click have to happen in the same run cycle.
-        loaded.radio[0].set_value(1)  # the demo's first answer is index 1
+    def test_unanswered_question_is_neutral_and_still_shows_the_answer(self, loaded):
         button(loaded, "Check answers").click()
         loaded.run()
-        assert not loaded.exception
-        assert loaded.session_state["answer_0"] == 1
+        body = " ".join(m.value for m in loaded.markdown)
+        assert "Not answered" in body
+        assert "the answer is" in body
+        # Not answering is not a mistake, so it must not be styled as a warning or error.
+        assert not any("Not answered" in w.value for w in loaded.warning)
+        assert not any("Not answered" in e.value for e in loaded.error)
+
+    def test_correct_answer_is_reported(self, loaded):
+        # A widget inside st.form only commits on submit, so the value and the click
+        # have to happen in the same run cycle.
+        correct = loaded.session_state["result"].quiz[0].correct_index
+        loaded.radio[0].set_value(correct)
+        button(loaded, "Check answers").click()
+        loaded.run()
         assert any("Correct" in s.value for s in loaded.success)
 
-    def test_answering_incorrectly_reveals_the_answer_and_evidence(self, loaded):
-        loaded.radio[0].set_value(0)
+    def test_wrong_answer_reveals_the_answer(self, loaded):
+        question = loaded.session_state["result"].quiz[0]
+        wrong = (question.correct_index + 1) % len(question.options)
+        loaded.radio[0].set_value(wrong)
         button(loaded, "Check answers").click()
         loaded.run()
         assert any("Not quite" in e.value for e in loaded.error)
-        captions = " ".join(c.value for c in loaded.caption)
-        assert "S001" in captions
-
-    def test_unanswered_question_is_flagged_not_marked_wrong(self, loaded):
-        button(loaded, "Check answers").click().run()
-        assert any("Not answered" in w.value for w in loaded.warning)
-
-
-class TestInputValidation:
-    def test_empty_submission_is_rejected_without_a_crash(self, app):
-        button(app, "Check this transcript").click().run()
-        assert not app.exception
-        assert any("Paste a transcript" in e.value for e in app.error)
-
-    def test_short_transcript_is_rejected_with_the_real_count(self, app):
-        app.text_area[0].set_value("too short").run()
-        button(app, "Check this transcript").click().run()
-        assert any("9 characters" in e.value for e in app.error)
-
-    def test_plain_text_is_accepted_and_reports_no_timestamps(self, app):
-        app.text_area[0].set_value("fermentation depends on temperature. " * 20).run()
-        button(app, "Check this transcript").click().run()
-        assert not app.exception
-        captions = " ".join(c.value for c in app.caption)
-        assert "plain text" in captions
-        assert "no timestamps" in captions

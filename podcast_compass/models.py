@@ -68,3 +68,17 @@ SECTION_MODELS: dict[str, type[BaseModel]] = {
     "chapters": ChaptersOnly,
     "quiz": QuizOnly,
 }
+
+
+def replace_section(result: EpisodeResult, section: str, revised: BaseModel) -> EpisodeResult:
+    """Swap one section into an existing result.
+
+    The merged result is re-validated from scratch, which is why a revision is held to
+    exactly the same grounding rules as the original generation.
+    """
+    if section not in SECTION_MODELS:
+        raise ValueError(f"unknown section: {section!r}")
+
+    data = result.model_dump()
+    data[section] = revised.model_dump()[section]
+    return EpisodeResult.model_validate(data)

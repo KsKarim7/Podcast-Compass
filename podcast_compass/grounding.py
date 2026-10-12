@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 
 from .models import Chapter, EpisodeResult, Evidence, QuizQuestion, Takeaway
 from .segments import Segment
+from .text import plural
 
 # Characters a model routinely substitutes when it "quotes" text.
 _PUNCTUATION = {
@@ -35,10 +36,6 @@ _PUNCTUATION = {
 _WHITESPACE = re.compile(r"\s+")
 
 MIN_QUOTE_WORDS = 3
-
-
-def _plural(count: int, noun: str) -> str:
-    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
 
 
 def normalise(text: str) -> str:
@@ -93,13 +90,13 @@ class ValidationReport:
             f"{self.quiz_kept} of {self.quiz_kept + self.quiz_dropped} questions",
         ]
         if self.chapters_flagged:
-            parts.append(f"{_plural(self.chapters_flagged, 'chapter')} could not be confirmed")
+            parts.append(f"{plural(self.chapters_flagged, 'chapter')} could not be confirmed")
         text = ", ".join(parts) + "."
         if self.dropped_total:
             # Deliberately not naming a single cause: items are dropped for a missing
             # quote, an unknown segment id, or an out-of-range answer index.
             text += (
-                f" {_plural(self.dropped_total, 'item')} dropped because we could not"
+                f" {plural(self.dropped_total, 'item')} dropped because we could not"
                 " verify them against your transcript."
             )
         return text
