@@ -352,10 +352,26 @@ We verified that `isinstance(exc, google.genai.errors.APIError)` is **False** fo
 `.code`. Catching the documented class would therefore have let every API error escape as an
 unhandled exception.
 
-Because that module is private and may be renamed, `llm.py` does not import it. It catches
-`Exception` at the single call site and branches on `getattr(exc, "status_code", None)`, falling
-through to a generic failure when the attribute is absent. Timeouts are recognised by class name
-(`APITimeoutError`) for the same reason.
+Because that module is private and may be renamed, `llm.py` does not import it. The `try/except
+Exception` wraps **only** the `interactions.create` call — never our own parsing, validation or
+export code, so a bug of ours can never be silently reported as a provider failure. Parsing and
+validation run after the `try` block has returned.
+
+**Classifier order**, in `llm.py`:
+
+1. `getattr(exc, "status_code", None)` **is not None** → use the status table below.
+2. Otherwise, if the class name is `APITimeoutError` or `APIConnectionError`, or `exc.__cause__` is
+   an `httpx.HTTPError` → treat as transient and go to the fallback model.
+3. Otherwise → generic user message, log `type(exc).__name__`, and do not retry.
+
+Two details that stage 1 depends on, both checked against 2.29.0. A timeout raises
+`APITimeoutError` (`APITimeoutError <- APIConnectionError <- APIError`) on which `status_code`
+**exists but is `None`** — so the test has to be `is not None`, not `hasattr`, or every timeout
+would fall into the status table with no status. And that exception is **not** an instance of any
+httpx class; `isinstance(exc, httpx.TimeoutException)` is `False`. The httpx error is only reachable
+as `exc.__cause__`, which for our 1 ms probe was `httpx.ConnectTimeout`. We check the class name
+first and treat the `__cause__` test as the backstop, since `httpx` reaches us only as a transitive
+dependency of `google-genai`.
 
 | Status | Condition | What we do |
 |---|---|---|
@@ -391,6 +407,12 @@ typed `float | httpx.Timeout`, which by httpx convention is **seconds** — two 
 same SDK, so we set the timeout once on the client in milliseconds and never pass the per-call
 argument. 45 seconds is chosen to sit above a realistic generation on a 150,000-character transcript
 while still failing before a user gives up.
+
+45 seconds is a guess until we measure it. During the build we time two generations — the sample
+transcript, and one at the full 150,000-character cap — and record both for the engineering notes.
+If the maximum-size transcript needs more than about 35 seconds, we **lower the input cap** rather
+than raise the timeout: a cap that fits comfortably inside the budget is easier to explain, and
+raising the timeout would also double the worst case below.
 
 **Worst-case wall clock for one generation**, with the settings above:
 
