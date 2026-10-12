@@ -11,6 +11,25 @@ WORDS_PER_SEGMENT = 120
 # Above this share of unreadable cues we stop trusting the file's structure.
 MAX_MALFORMED_CUE_RATIO = 0.2
 
+# Models are named here, never at a call site, so a retirement is a config change.
+# gemini-2.5-flash was withdrawn from new accounts while we were researching this.
+PRIMARY_MODEL = "gemini-3.5-flash-lite"
+FALLBACK_MODEL = "gemini-3.1-flash-lite"
+
+REQUEST_TIMEOUT_MS = 45_000
+
+# The SDK's own defaults are 5 attempts with delays growing to 60s, which would leave a
+# user waiting a minute before the fallback model is tried.
+RETRY_ATTEMPTS = 2
+RETRY_INITIAL_DELAY_S = 0.5
+RETRY_MAX_DELAY_S = 2.0
+RETRY_STATUS_CODES = [408, 429, 500, 503, 504]
+
+MAX_REVISION_CHARS = 300
+
+# Past this point a repair retry would push the worst case beyond what anyone will wait for.
+REPAIR_BUDGET_S = 60.0
+
 LIMITS_TEXT = (
     "Paste a transcript, or upload .txt, .vtt or .srt — up to "
     f"{MAX_UPLOAD_MB} MB and {MAX_CHARS:,} characters (about 3 hours of speech). "
