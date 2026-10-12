@@ -1,0 +1,7 @@
+[server]
+# Our own cap is 150,000 characters, enforced after decoding. This byte limit is the
+# outer guard: Streamlit's default is 200 MB, which is far more than a transcript needs.
+maxUploadSize = 2
+
+[browser]
+gatherUsageStats = false
