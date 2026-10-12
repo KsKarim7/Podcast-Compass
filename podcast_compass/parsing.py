@@ -71,6 +71,27 @@ def decode_bytes(data: bytes) -> str:
     raise InputError(messages.BAD_ENCODING)
 
 
+ALLOWED_EXTENSIONS = ("txt", "vtt", "srt")
+
+
+def read_upload(name: str, data: bytes) -> str:
+    """Check the extension, then decode.
+
+    Streamlit's uploader has its own type filter, but its documentation calls that
+    best-effort rather than a guarantee, so the name is checked again here. This lives
+    in the package rather than in the app module so it can be tested without importing
+    the Streamlit script.
+    """
+    extension = name.rsplit(".", 1)[-1].lower() if "." in (name or "") else ""
+    if extension not in ALLOWED_EXTENSIONS:
+        raise InputError(
+            messages.UNSUPPORTED_FILE_TYPE.format(
+                extension=f".{extension}" if extension else "unnamed"
+            )
+        )
+    return decode_bytes(data)
+
+
 def normalise_newlines(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n")
 

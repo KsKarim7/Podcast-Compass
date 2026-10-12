@@ -15,7 +15,12 @@ from podcast_compass import config, export, messages, prompts, quota, render, sa
 from podcast_compass.grounding import GroundedResult, GroundingRejected, validate
 from podcast_compass.llm import LlmError, build_sdk_call, generate
 from podcast_compass.models import SECTION_MODELS, EpisodeResult, replace_section
-from podcast_compass.parsing import InputError, decode_bytes, parse_transcript
+from podcast_compass.parsing import (
+    ALLOWED_EXTENSIONS,
+    InputError,
+    parse_transcript,
+    read_upload,
+)
 from podcast_compass.segments import build_segments, render_for_prompt, segment_lookup
 
 st.set_page_config(page_title="Podcast Compass", page_icon="🎧", layout="centered")
@@ -286,20 +291,12 @@ def undo(section: str) -> None:
         clear_answers(len(st.session_state["result"].quiz))
 
 
-ALLOWED_EXTENSIONS = ("txt", "vtt", "srt")
-
-
 def read_input(pasted: str, upload) -> str:
     if upload is None:
         return pasted
-
-    # Streamlit's uploader type filter is documented as best-effort, not a guarantee,
-    # so the extension is checked again here before anything is decoded.
-    name = getattr(upload, "name", "") or ""
-    extension = name.rsplit(".", 1)[-1].lower() if "." in name else ""
-    if extension not in ALLOWED_EXTENSIONS:
-        raise InputError(messages.UNSUPPORTED_FILE_TYPE.format(extension=f".{extension}" if extension else "unnamed"))
-    return decode_bytes(upload.getvalue())
+    # The extension check and decoding live in the package, so they can be tested
+    # without importing this script.
+    return read_upload(getattr(upload, "name", "") or "", upload.getvalue())
 
 
 def show_input() -> None:
@@ -312,46 +309,55 @@ def show_input() -> None:
     # Shown before any input is accepted, because free-tier terms apply to whatever is sent.
     st.warning(render.DATA_USE_NOTICE, icon="⚠️")
 
-    pasted = st.text_area("Paste a transcript", height=200, key="pasted")
-    upload = st.file_uploader(
-        "or upload a file",
-        type=["txt", "vtt", "srt"],
-        accept_multiple_files=False,
-        max_upload_size=config.MAX_UPLOAD_MB,
-    )
-    st.caption(config.LIMITS_TEXT)
-
-    if pasted:
-        st.caption(f"{len(pasted.strip()):,} / {config.MAX_CHARS:,} characters")
-
-    has_key = api_key() is not None
-    left, right = st.columns(2)
-    with left:
-        st.button(
-            "Load example episode",
-            on_click=load_sample,
-            help="Shows a result generated earlier. Makes no API call.",
-            width="stretch",
+    # The input sits in a form so that editing the text and pressing a button are one
+    # interaction. A free-standing text_area only sends its value when it loses focus,
+    # so the click that blurred it was spent committing the text and the button press
+    # was lost: the first click appeared to do nothing. Form widgets hold their values
+    # until a submit button is pressed, so a single click always works.
+    with st.form("transcript_input"):
+        pasted = st.text_area("Paste a transcript", height=200, key="pasted")
+        upload = st.file_uploader(
+            "or upload a file",
+            type=list(ALLOWED_EXTENSIONS),
+            accept_multiple_files=False,
+            max_upload_size=config.MAX_UPLOAD_MB,
         )
-    with right:
-        if st.button("Generate", width="stretch", type="primary"):
-            try:
-                text = read_input(pasted, upload)
-            except InputError as exc:
+        st.caption(config.LIMITS_TEXT)
+
+        left, right = st.columns(2)
+        with left:
+            load_example = st.form_submit_button(
+                "Load example episode",
+                help="Shows a result generated earlier. Makes no API call.",
+                width="stretch",
+            )
+        with right:
+            generate = st.form_submit_button("Generate", type="primary", width="stretch")
+
+    if load_example:
+        load_sample()
+    elif generate:
+        try:
+            text = read_input(pasted, upload)
+        except InputError as exc:
+            clear_all()
+            st.session_state["error"] = str(exc)
+        else:
+            if not text.strip():
                 clear_all()
-                st.session_state["error"] = str(exc)
+                st.session_state["error"] = messages.NOTHING_SUBMITTED
             else:
-                if not text.strip():
-                    clear_all()
-                    st.session_state["error"] = messages.NOTHING_SUBMITTED
-                else:
-                    run_generation(text)
+                run_generation(text)
+
+    # Errors belong directly under the buttons that caused them, not below the limits
+    # expander and a divider where they have to be scrolled to.
+    show_messages()
 
     st.caption(quota.allowance_caption(session_usage(), daily_counter()))
     with st.expander("Why this demo has limits"):
         st.write(quota.LIMITATION_NOTE)
 
-    if not has_key:
+    if api_key() is None:
         st.caption(messages.MISSING_KEY)
 
 
@@ -522,7 +528,6 @@ def main() -> None:
     init_state()
     show_input()
     st.divider()
-    show_messages()
 
     if st.session_state["detection"]:
         st.caption(st.session_state["detection"])

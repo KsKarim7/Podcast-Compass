@@ -70,6 +70,16 @@ def button(at: AppTest, label: str):
     raise AssertionError(f"no button labelled {label!r}; found {[b.label for b in at.button]}")
 
 
+def submit_text(at: AppTest, text: str, label: str = "Generate") -> AppTest:
+    """One browser click: set the form value and press, with no run in between."""
+    at.text_area[0].set_value(text)
+    for candidate in at.button:
+        if candidate.label == label:
+            candidate.click()
+            return at.run()
+    raise AssertionError(f"no button labelled {label!r}")
+
+
 def captions(at: AppTest) -> str:
     return " ".join(c.value for c in at.caption)
 
@@ -106,32 +116,40 @@ class TestFirstLoad:
 
 class TestInputValidation:
     def test_empty_submission_is_rejected(self, app):
-        button(app, "Generate").click().run()
+        button(app, "Generate").click()
+        app.run()
         assert not app.exception
         assert "Paste a transcript or upload a file first." in errors(app)
 
     def test_short_transcript_is_rejected_with_the_real_count(self, app):
-        app.text_area[0].set_value("too short").run()
-        button(app, "Generate").click().run()
+        submit_text(app, "too short")
         assert "9 characters" in errors(app)
 
     def test_oversized_transcript_is_rejected_with_the_real_count(self, app):
-        app.text_area[0].set_value("x" * (config.MAX_CHARS + 5)).run()
-        button(app, "Generate").click().run()
+        submit_text(app, "x" * (config.MAX_CHARS + 5))
         assert f"{config.MAX_CHARS + 5:,} characters" in errors(app)
 
     def test_valid_input_is_parsed_then_stops_at_the_missing_key(self, app):
-        app.text_area[0].set_value("fermentation depends on temperature. " * 20).run()
-        button(app, "Generate").click().run()
+        submit_text(app, "fermentation depends on temperature. " * 20)
         assert not app.exception
         # Detection is still reported, so the user learns about their file either way.
         assert "plain text" in captions(app)
         assert "no timestamps" in captions(app)
         assert "not configured with an API key" in errors(app)
 
-    def test_character_counter_appears_while_typing(self, app):
-        app.text_area[0].set_value("abc").run()
-        assert f"3 / {config.MAX_CHARS:,} characters" in captions(app)
+    def test_one_submit_is_enough_after_typing(self, app):
+        """Regression: a free-standing text_area needed two clicks.
+
+        The first click only blurred the field and committed its value, so the button
+        press was lost. Inside a form the value and the press arrive together. AppTest
+        reproduces this faithfully: setting the value and pressing in one run cycle is
+        exactly one browser click, and an intervening run() is a second one.
+        """
+        app.text_area[0].set_value("too short")
+        button(app, "Generate").click()
+        app.run()
+        # One cycle produced the verdict; no second press was needed.
+        assert "9 characters" in errors(app)
 
 
 class TestMissingSample:
@@ -254,8 +272,7 @@ class TestQuotaInTheInterface:
         keyed_app.session_state["usage"] = quota.SessionUsage(
             actions=quota.MAX_SESSION_ACTIONS, last_action_at=None
         )
-        keyed_app.text_area[0].set_value("fermentation depends on temperature. " * 20).run()
-        button(keyed_app, "Generate").click().run()
+        submit_text(keyed_app, "fermentation depends on temperature. " * 20)
         assert not keyed_app.exception
         assert "this session" in errors(keyed_app)
 
@@ -265,8 +282,7 @@ class TestQuotaInTheInterface:
         keyed_app.session_state["usage"] = quota.SessionUsage(
             actions=1, last_action_at=_time.monotonic()
         )
-        keyed_app.text_area[0].set_value("fermentation depends on temperature. " * 20).run()
-        button(keyed_app, "Generate").click().run()
+        submit_text(keyed_app, "fermentation depends on temperature. " * 20)
         assert messages.TOO_SOON in errors(keyed_app)
 
 

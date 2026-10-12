@@ -19,7 +19,7 @@ from podcast_compass import config, messages, quota
 from podcast_compass.grounding import GroundingRejected, validate
 from podcast_compass.llm import LlmError, classify, generate
 from podcast_compass.models import OverviewOnly, QuizOnly, replace_section
-from podcast_compass.parsing import InputError, decode_bytes, parse_transcript
+from podcast_compass.parsing import InputError, decode_bytes, parse_transcript, read_upload
 from podcast_compass.segments import build_segments, segment_lookup
 from tests.fixtures import handwritten_result
 from tests.test_llm import VALID, APITimeoutError, FakeStatusError, RecordingCall
@@ -168,17 +168,6 @@ class TestGroundingFailures:
 # --------------------------------------------------------------- the app's own paths
 
 
-class FakeUpload:
-    """Enough of Streamlit's UploadedFile for the extension guard."""
-
-    def __init__(self, name: str, data: bytes = b"x" * 400) -> None:
-        self.name = name
-        self._data = data
-
-    def getvalue(self) -> bytes:
-        return self._data
-
-
 @pytest.fixture(autouse=True)
 def never_reach_the_provider(monkeypatch):
     def refuse(*args, **kwargs):
@@ -197,52 +186,60 @@ def errors(at: AppTest) -> str:
     return " ".join(e.value for e in at.error)
 
 
-def click(at: AppTest, label: str) -> AppTest:
+def press(at: AppTest, label: str) -> AppTest:
+    """Press a button and run. For form widgets, set their values first without
+    running in between: a form holds its values until submit, exactly as in a browser.
+    """
     for candidate in at.button:
         if candidate.label == label:
-            return candidate.click().run()
-    raise AssertionError(f"no button labelled {label!r}")
+            candidate.click()
+            return at.run()
+    raise AssertionError(f"no button labelled {label!r}; found {[b.label for b in at.button]}")
+
+
+def submit_text(at: AppTest, text: str, label: str = "Generate") -> AppTest:
+    at.text_area[0].set_value(text)
+    return press(at, label)
 
 
 class TestAppLevelFailures:
     def test_nothing_submitted(self):
         at = fresh_app()
         at.run()
-        click(at, "Generate")
+        press(at, "Generate")
         assert messages.NOTHING_SUBMITTED in errors(at)
 
     def test_missing_key(self):
         at = fresh_app()
         at.run()
-        at.text_area[0].set_value("fermentation depends on temperature. " * 20).run()
-        click(at, "Generate")
+        submit_text(at, "fermentation depends on temperature. " * 20)
         assert messages.MISSING_KEY in errors(at)
 
     def test_unsupported_file_type(self):
-        from app import read_input
-
         with pytest.raises(InputError) as exc:
-            read_input("", FakeUpload("notes.pdf"))
+            read_upload("notes.pdf", b"x" * 400)
         assert str(exc.value) == messages.UNSUPPORTED_FILE_TYPE.format(extension=".pdf")
 
-    def test_allowed_file_type_passes_the_guard(self):
-        from app import read_input
+    def test_file_with_no_extension_is_refused(self):
+        with pytest.raises(InputError) as exc:
+            read_upload("transcript", b"x" * 400)
+        assert "unnamed" in str(exc.value)
 
-        text = read_input("", FakeUpload("episode.vtt", b"WEBVTT\n\n" + b"x" * 400))
-        assert text.startswith("WEBVTT")
+    def test_allowed_file_type_passes_the_guard(self):
+        assert read_upload("episode.vtt", b"WEBVTT\n\n" + b"x" * 400).startswith("WEBVTT")
 
     def test_try_again_button_appears_with_an_error(self):
         at = fresh_app()
         at.run()
-        click(at, "Generate")
+        press(at, "Generate")
         assert any(b.label == "Try again" for b in at.button)
 
     def test_try_again_clears_the_error(self):
         at = fresh_app()
         at.run()
-        click(at, "Generate")
+        press(at, "Generate")
         assert errors(at)
-        click(at, "Try again")
+        press(at, "Try again")
         assert not errors(at)
 
 
@@ -277,7 +274,7 @@ class TestFailedRevisionKeepsTheGoodResult:
         )
         at = fresh_app("dummy-key-never-used")
         at.run()
-        click(at, "Load example episode")
+        press(at, "Load example episode")
         at.selectbox[0].set_value("quiz").run()
         return at
 
@@ -302,7 +299,7 @@ class TestFailedRevisionKeepsTheGoodResult:
         before = at.session_state["result"]
         questions_before = len(before.quiz)
 
-        click(at, "Revise this section")
+        press(at, "Revise this section")
 
         assert not at.exception
         assert messages.REVISION_REJECTED in errors(at)
@@ -312,7 +309,7 @@ class TestFailedRevisionKeepsTheGoodResult:
 
     def test_a_rejected_revision_does_not_offer_undo(self, monkeypatch):
         at = self._loaded(monkeypatch, self._broken_quiz_json())
-        click(at, "Revise this section")
+        press(at, "Revise this section")
 
         assert at.session_state["previous"] == {}
         undo = [b for b in at.button if b.label.startswith("Undo last change")]
@@ -323,7 +320,7 @@ class TestFailedRevisionKeepsTheGoodResult:
         chapters_before = [c.chapter.title for c in at.session_state["result"].chapters]
         summary_before = at.session_state["result"].summary
 
-        click(at, "Revise this section")
+        press(at, "Revise this section")
 
         assert not at.exception
         assert not errors(at)
@@ -334,7 +331,7 @@ class TestFailedRevisionKeepsTheGoodResult:
 
     def test_an_accepted_revision_offers_undo(self, monkeypatch):
         at = self._loaded(monkeypatch, self._shorter_quiz_json())
-        click(at, "Revise this section")
+        press(at, "Revise this section")
 
         assert "quiz" in at.session_state["previous"]
         undo = [b for b in at.button if b.label.startswith("Undo last change")]
@@ -343,12 +340,12 @@ class TestFailedRevisionKeepsTheGoodResult:
     def test_undo_restores_the_original_without_a_further_call(self, monkeypatch):
         at = self._loaded(monkeypatch, self._shorter_quiz_json())
         original = len(at.session_state["result"].quiz)
-        click(at, "Revise this section")
+        press(at, "Revise this section")
         assert len(at.session_state["result"].quiz) == 2
 
         # Any further provider call would return the shortened quiz again; undo must
         # not make one, so the count going back up proves it was a state swap.
-        click(at, [b.label for b in at.button if b.label.startswith("Undo last change")][0])
+        press(at, [b.label for b in at.button if b.label.startswith("Undo last change")][0])
         assert len(at.session_state["result"].quiz) == original
 
 
@@ -422,8 +419,8 @@ class TestWholeResultRejectionInTheInterface:
         at.run()
         at.text_area[0].set_value(
             __import__("podcast_compass.sample", fromlist=["x"]).load_transcript()
-        ).run()
-        click(at, "Generate")
+        )
+        press(at, "Generate")
         return at
 
     def test_shows_the_rejection_message(self, monkeypatch):
