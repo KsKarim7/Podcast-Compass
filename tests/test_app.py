@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 from streamlit.testing.v1 import AppTest
 
-from podcast_compass import config, quota, render, sample
+from podcast_compass import config, messages, quota, render, sample
 
 # AppTest resolves a relative path against the file that calls it, which would look
 # inside tests/, so the path is built from the repo root.
@@ -267,7 +267,7 @@ class TestQuotaInTheInterface:
         )
         keyed_app.text_area[0].set_value("fermentation depends on temperature. " * 20).run()
         button(keyed_app, "Generate").click().run()
-        assert quota.TOO_SOON_MESSAGE in errors(keyed_app)
+        assert messages.TOO_SOON in errors(keyed_app)
 
 
 class TestTheGuardItself:

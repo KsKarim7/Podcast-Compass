@@ -6,6 +6,7 @@ Nothing here imports streamlit. app.py decides which widget shows each string.
 from __future__ import annotations
 
 from .grounding import VerifiedChapter
+from . import messages
 from .parsing import ParsedTranscript
 from .segments import format_timestamp
 from .text import plural
@@ -33,10 +34,7 @@ def detection_line(parsed: ParsedTranscript, segment_count: int) -> str:
     if parsed.cues:
         line = f"Detected: {name}, {len(parsed.cues)} cues, timestamps available"
     elif parsed.fell_back_to_text:
-        line = (
-            "Detected: subtitle markup we could not read, so this was treated as "
-            "plain text — no timestamps"
-        )
+        line = f"Detected: {messages.NO_CUES_FELL_BACK}"
     else:
         line = f"Detected: {name}, no timestamps"
 

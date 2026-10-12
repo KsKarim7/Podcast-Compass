@@ -10,7 +10,7 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
-from . import config
+from . import config, messages
 
 Format = Literal["vtt", "srt", "text"]
 
@@ -68,9 +68,7 @@ def decode_bytes(data: bytes) -> str:
         except UnicodeDecodeError:
             continue
 
-    raise InputError(
-        "We could not read that file's text encoding. Save it as UTF-8 and try again."
-    )
+    raise InputError(messages.BAD_ENCODING)
 
 
 def normalise_newlines(text: str) -> str:
@@ -93,17 +91,11 @@ def detect_format(text: str) -> Format:
 def validate_length(text: str) -> None:
     stripped = text.strip()
     if not stripped:
-        raise InputError("That file has no text in it.")
+        raise InputError(messages.EMPTY_INPUT)
     if len(stripped) < config.MIN_CHARS:
-        raise InputError(
-            f"That transcript is {len(stripped):,} characters. "
-            f"We need at least {config.MIN_CHARS:,} to work with."
-        )
+        raise InputError(messages.TOO_SHORT.format(count=len(stripped)))
     if len(stripped) > config.MAX_CHARS:
-        raise InputError(
-            f"That transcript is {len(stripped):,} characters. The limit is "
-            f"{config.MAX_CHARS:,} — about 3 hours of speech. Try a shorter section."
-        )
+        raise InputError(messages.TOO_LONG.format(count=len(stripped)))
 
 
 def _parse_time(match: re.Match[str], offset: int) -> float:
@@ -200,14 +192,11 @@ def parse_transcript(raw_text: str) -> ParsedTranscript:
                 malformed_cues=malformed,
                 fell_back_to_text=True,
             )
-        raise InputError("We could not read any subtitle cues from that file.")
+        raise InputError(messages.NO_CUES_AT_ALL)
 
     total_blocks = len(cues) + malformed
     if malformed / total_blocks > config.MAX_MALFORMED_CUE_RATIO:
-        raise InputError(
-            f"We could only read {len(cues)} of {total_blocks} cues in that file. "
-            "It looks damaged — try re-exporting the subtitles."
-        )
+        raise InputError(messages.DAMAGED_CUES.format(good=len(cues), total=total_blocks))
 
     return ParsedTranscript(
         detected=detected,

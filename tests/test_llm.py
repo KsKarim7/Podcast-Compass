@@ -11,7 +11,7 @@ import sys
 
 import pytest
 
-from podcast_compass import config, llm
+from podcast_compass import config, llm, messages
 from podcast_compass.llm import LlmError, classify, generate
 from podcast_compass.models import Overview, OverviewOnly
 
@@ -131,7 +131,7 @@ class TestClassify:
         leaked = "REDACTED-PLACEHOLDER-VALUE"
         failure = classify(FakeStatusError(400, f"API key not valid: {leaked}"))
         assert leaked not in failure.user_message
-        assert failure.user_message == llm.CONFIG_MESSAGE
+        assert failure.user_message == messages.REJECTED_KEY
 
 
 class TestGenerate:

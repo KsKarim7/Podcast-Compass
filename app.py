@@ -6,11 +6,12 @@ live in the podcast_compass package so they can be tested without a browser or a
 
 from __future__ import annotations
 
+import logging
 import time
 
 import streamlit as st
 
-from podcast_compass import config, export, prompts, quota, render, sample
+from podcast_compass import config, export, messages, prompts, quota, render, sample
 from podcast_compass.grounding import GroundedResult, GroundingRejected, validate
 from podcast_compass.llm import LlmError, build_sdk_call, generate
 from podcast_compass.models import SECTION_MODELS, EpisodeResult, replace_section
@@ -19,14 +20,9 @@ from podcast_compass.segments import build_segments, render_for_prompt, segment_
 
 st.set_page_config(page_title="Podcast Compass", page_icon="🎧", layout="centered")
 
-REJECTION_MESSAGE = (
-    "We could not verify enough of that result against your transcript, so we are not "
-    "showing it."
-)
-NO_KEY_MESSAGE = (
-    "This app is not configured with an API key, so generation is unavailable. "
-    "The example episode still works."
-)
+logger = logging.getLogger(__name__)
+
+# All user-facing failure wording comes from podcast_compass.messages.
 SECTION_LABELS = {"overview": "Overview", "chapters": "Chapters", "quiz": "Quiz"}
 PRESET_LABELS = {
     "shorter": "Shorter",
@@ -75,7 +71,7 @@ def call_with_quota(run):
     counter = daily_counter()
     reserved = quota.REQUESTS_PER_ACTION
     if not counter.reserve(reserved):
-        return None, quota.DAILY_LIMIT_MESSAGE
+        return None, messages.DAILY_CAP.format(limit=counter.limit)
 
     try:
         raw, outcome = run()
@@ -124,23 +120,38 @@ def clear_answers(count: int) -> None:
         st.session_state.pop(f"answer_{number}", None)
 
 
-def store(raw: EpisodeResult, segments, detection: str, source: str) -> None:
+def store(
+    raw: EpisodeResult,
+    segments,
+    detection: str,
+    source: str,
+    *,
+    rejection_message: str = messages.GROUNDING_REJECTED,
+) -> bool:
     """Validate and keep both the raw result and the grounded view.
 
     The raw result is what a revision merges into, and the grounded view is what the
     page renders. Keeping both means a revision is re-validated as a whole.
+
+    Returns False and writes an error when validation rejects the result, leaving any
+    result already on screen untouched. The caller has to check: "a result exists" is
+    not the same as "this result was accepted", which is the difference between keeping
+    a good revision and offering Undo for one that never applied.
     """
     lookup = segment_lookup(segments)
     try:
         grounded = validate(raw, lookup)
     except GroundingRejected as exc:
-        st.session_state["error"] = f"{REJECTION_MESSAGE} ({exc})"
-        return
+        logger.info("result rejected by grounding: %s", exc)
+        st.session_state["error"] = rejection_message
+        return False
+
     st.session_state["raw"] = raw
     st.session_state["result"] = grounded
     st.session_state["segments"] = segments
     st.session_state["detection"] = detection
     st.session_state["source"] = source
+    return True
 
 
 def load_sample() -> None:
@@ -178,7 +189,7 @@ def run_generation(text: str) -> None:
 
     key = api_key()
     if key is None:
-        st.session_state["error"] = NO_KEY_MESSAGE
+        st.session_state["error"] = messages.MISSING_KEY
         return
 
     blocked = spend_allowed()
@@ -211,7 +222,7 @@ def run_generation(text: str) -> None:
 def run_revision(section: str, instruction: str) -> None:
     key = api_key()
     if key is None:
-        st.session_state["error"] = NO_KEY_MESSAGE
+        st.session_state["error"] = messages.MISSING_KEY
         return
 
     blocked = spend_allowed()
@@ -246,11 +257,20 @@ def run_revision(section: str, instruction: str) -> None:
     merged = replace_section(raw, section, revised)
 
     st.session_state["error"] = None
-    store(merged, segments, st.session_state["detection"], st.session_state["source"])
-    if st.session_state["result"] is not None:
-        st.session_state["previous"] = previous
-        if section == "quiz":
-            clear_answers(len(st.session_state["result"].quiz))
+    applied = store(
+        merged,
+        segments,
+        st.session_state["detection"],
+        st.session_state["source"],
+        rejection_message=messages.REVISION_REJECTED,
+    )
+    if not applied:
+        # The previous result is still on screen, so there is nothing to undo.
+        return
+
+    st.session_state["previous"] = previous
+    if section == "quiz":
+        clear_answers(len(st.session_state["result"].quiz))
 
 
 def undo(section: str) -> None:
@@ -266,10 +286,20 @@ def undo(section: str) -> None:
         clear_answers(len(st.session_state["result"].quiz))
 
 
+ALLOWED_EXTENSIONS = ("txt", "vtt", "srt")
+
+
 def read_input(pasted: str, upload) -> str:
-    if upload is not None:
-        return decode_bytes(upload.getvalue())
-    return pasted
+    if upload is None:
+        return pasted
+
+    # Streamlit's uploader type filter is documented as best-effort, not a guarantee,
+    # so the extension is checked again here before anything is decoded.
+    name = getattr(upload, "name", "") or ""
+    extension = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    if extension not in ALLOWED_EXTENSIONS:
+        raise InputError(messages.UNSUPPORTED_FILE_TYPE.format(extension=f".{extension}" if extension else "unnamed"))
+    return decode_bytes(upload.getvalue())
 
 
 def show_input() -> None:
@@ -305,18 +335,24 @@ def show_input() -> None:
         )
     with right:
         if st.button("Generate", width="stretch", type="primary"):
-            text = read_input(pasted, upload)
-            if not text.strip():
-                st.session_state["error"] = "Paste a transcript or upload a file first."
+            try:
+                text = read_input(pasted, upload)
+            except InputError as exc:
+                clear_all()
+                st.session_state["error"] = str(exc)
             else:
-                run_generation(text)
+                if not text.strip():
+                    clear_all()
+                    st.session_state["error"] = messages.NOTHING_SUBMITTED
+                else:
+                    run_generation(text)
 
     st.caption(quota.allowance_caption(session_usage(), daily_counter()))
     with st.expander("Why this demo has limits"):
         st.write(quota.LIMITATION_NOTE)
 
     if not has_key:
-        st.caption(NO_KEY_MESSAGE)
+        st.caption(messages.MISSING_KEY)
 
 
 def show_overview(result: GroundedResult) -> None:

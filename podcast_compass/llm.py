@@ -25,26 +25,13 @@ from typing import Any, Callable, Protocol, TypeVar
 
 from pydantic import BaseModel
 
-from . import config, prompts
+from . import config, messages, prompts
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
-CONFIG_MESSAGE = "This app is not configured with a working API key. The sample episode still works."
-QUOTA_MESSAGE = (
-    "We have hit today's free-tier limit for this demo. The sample episode still works, "
-    "and the limit resets daily."
-)
-TRANSIENT_MESSAGE = (
-    "The model is busy right now. We tried a second model and it is also unavailable — "
-    "please try again in a minute."
-)
-TIMEOUT_MESSAGE = (
-    "That took longer than we were willing to wait. A shorter transcript will be faster."
-)
-MALFORMED_MESSAGE = "The model returned something we could not read, twice. Please try again."
-UNKNOWN_MESSAGE = "Something went wrong on our side. Please try again."
+# User-facing wording lives in messages.py so it cannot drift.
 
 
 class ModelCall(Protocol):
@@ -109,25 +96,25 @@ def classify(exc: Exception) -> Failure:
         # An invalid key returns 400 INVALID_ARGUMENT, not the documented 401, so 400
         # cannot be treated as our own bug without checking the message first.
         if status in (400, 401) and "api key not valid" in message.casefold():
-            return Failure("config", CONFIG_MESSAGE, False, detail)
+            return Failure("config", messages.REJECTED_KEY, False, detail)
         if status == 401:
-            return Failure("config", CONFIG_MESSAGE, False, detail)
+            return Failure("config", messages.REJECTED_KEY, False, detail)
         if status == 403:
-            return Failure("config", CONFIG_MESSAGE, False, detail)
+            return Failure("config", messages.REJECTED_KEY, False, detail)
         if status == 400:
-            return Failure("bad_request", UNKNOWN_MESSAGE, False, detail)
+            return Failure("bad_request", messages.UNKNOWN, False, detail)
         if status == 404:
-            return Failure("not_found", TRANSIENT_MESSAGE, True, detail)
+            return Failure("not_found", messages.MODEL_BUSY, True, detail)
         if status == 429:
-            return Failure("quota", QUOTA_MESSAGE, True, detail)
+            return Failure("quota", messages.QUOTA_EXHAUSTED, True, detail)
         if status in (408, 500, 502, 503, 504):
-            return Failure("transient", TRANSIENT_MESSAGE, True, detail)
-        return Failure("unknown", UNKNOWN_MESSAGE, False, detail)
+            return Failure("transient", messages.MODEL_BUSY, True, detail)
+        return Failure("unknown", messages.UNKNOWN, False, detail)
 
     if _looks_like_timeout(exc):
-        return Failure("timeout", TIMEOUT_MESSAGE, True, detail)
+        return Failure("timeout", messages.TIMED_OUT, True, detail)
 
-    return Failure("unknown", UNKNOWN_MESSAGE, False, detail)
+    return Failure("unknown", messages.UNKNOWN, False, detail)
 
 
 def _attempt(
@@ -184,7 +171,7 @@ def generate(
         elapsed = clock() - started
         if elapsed > config.REPAIR_BUDGET_S:
             logger.warning("skipping repair retry, %.1fs already spent", elapsed)
-            raise LlmError(Failure("malformed", MALFORMED_MESSAGE, False, "budget spent"))
+            raise LlmError(Failure("malformed", messages.MALFORMED_TWICE, False, "budget spent"))
 
         logger.info("output failed validation, attempting one repair retry")
         raw = _attempt(
@@ -194,7 +181,7 @@ def generate(
             parsed = _parse(raw, schema_model)
         except ValueError as exc:
             raise LlmError(
-                Failure("malformed", MALFORMED_MESSAGE, False, f"repair failed: {exc!r}"[:200])
+                Failure("malformed", messages.MALFORMED_TWICE, False, f"repair failed: {exc!r}"[:200])
             ) from exc
 
         outcome = Outcome(model, (clock() - started) * 1000, used_fallback, repaired=True)

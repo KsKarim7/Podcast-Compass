@@ -620,27 +620,35 @@ there is no billing account attached.
 ## 11. Error catalogue
 
 Every message names what happened and what to do next. None of them show a stack trace, a provider
-URL or any part of the key.
+URL or any part of the key — asserted by a test over every message constant.
+
+The wording lives in `podcast_compass/messages.py`, one module, so the same failure cannot acquire
+two different phrasings in two places and so this table can be checked against the code rather than
+trusted. `tests/test_errors.py` has a test per row.
 
 | Failure | User message | What the code does |
 |---|---|---|
-| Unsupported file type | "We can read `.txt`, `.vtt` and `.srt`. That file is `.pdf`." | Rejected by the uploader's `type` filter, then re-checked after decoding |
+| Unsupported file type | "We can read .txt, .vtt and .srt files. That one is .pdf." | The uploader's `type` filter refuses it first, but that filter is documented as best-effort, so `read_input` checks the extension again before decoding |
 | Empty or whitespace-only | "That file has no text in it." | Reject before any API call |
 | Below 200 characters | "That transcript is 94 characters. We need at least 200 to work with." | Reject |
 | Over the character cap | "That transcript is 184,512 characters. The limit is 150,000 — about 3 hours of speech. Try a shorter section." | Reject, no truncation |
 | Over 2 MB | Streamlit's own uploader message | Never reaches our code |
 | Non-UTF-8 bytes | "We could not read that file's text encoding. Save it as UTF-8 and try again." | UTF-16 by byte-order mark, then UTF-8, then one `cp1252` attempt |
 | Detected as VTT/SRT, no readable cues | "We could not read any subtitle cues, so we treated this as plain text — chapters will have no times." | Continue as plain text |
-| Missing secret | "This app is not configured with an API key. The sample episode still works." | Checked at startup; generate buttons disabled, sample button left enabled |
-| 400 with "API key not valid" | "The configured API key was rejected. The sample episode still works." | No retry. Same path as a missing key |
+| Missing secret | "This app is not configured with an API key, so generation is unavailable. The example episode still works." | Input is validated first, so a bad transcript is still reported as such and the detection line still appears. The button stays enabled: a disabled control explains nothing |
+| 400 with "API key not valid" | "The configured API key was rejected. The example episode still works." | No retry, and a distinct message from a missing key, because the fix is different |
 | 403 | Same as above | No retry |
-| 429 | "We have hit today's free-tier limit for this demo. The sample episode still works, and the limit resets daily." | Fallback model first; this message only if both are exhausted |
+| 404 model not found | "The model is busy right now…" | Switches to the fallback model, which is also the retirement path |
+| 429 | "We have hit today's free-tier limit for this demo. The example episode still works. The limit resets daily." | Fallback model first; this message only if both are exhausted |
 | 503, 500, 504 | "The model is busy right now. We tried a second model and it is also unavailable — please try again in a minute." | SDK retries within our bounds, then the fallback |
-| Timeout | "That took longer than 45 seconds, so we stopped waiting. A shorter transcript will be faster." | Classified transient, fallback tried once |
+| Timeout | "That took longer than 45 seconds, so we stopped waiting. A shorter transcript will be faster." The number is read from `config.REQUEST_TIMEOUT_MS`, so it cannot drift | Classified transient, fallback tried once |
 | Malformed JSON after the repair retry | "The model returned something we could not read, twice. Please try again." | No partial result is shown |
 | Grounding rejects the whole response | "We could not verify enough of that result against your transcript, so we are not showing it." plus a **Try again** button | No automatic retry: the output parsed, so a second call is the user's choice to make, not ours |
-| Daily cap reached | "This demo is limited to 400 generations a day to stay inside the free tier. The sample episode still works." | Our own counter, before any call |
-| Per-session cap reached | "You have run 10 generations in this session, which is this demo's limit." | Our own counter |
+| Daily cap reached | "This demo is limited to 400 requests a day to stay inside the free tier. The example episode still works. The limit resets daily." | Our own counter, before any call. Requests, not generations: see section 10 |
+| Per-session cap reached | "You have run 10 generations in this session, which is this demo's limit. The example episode still works." | Our own counter |
+| Too soon after the last generation | "That was quick — wait a moment before generating again." | Our own counter, 4-second minimum gap |
+| Nothing submitted | "Paste a transcript or upload a file first." | Checked before anything else |
+| A revision fails validation | "We could not verify that revision against your transcript, so we have kept the previous version." | The previous result stays on screen and Undo is **not** offered, because nothing was replaced |
 | Anything unclassified | "Something went wrong on our side. Please try again." | Log `type(exc).__name__`, no retry |
 
 Note the pattern: wherever generation is unavailable, the message points at the sample episode,

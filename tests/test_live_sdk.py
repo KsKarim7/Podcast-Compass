@@ -15,7 +15,7 @@ import os
 
 import pytest
 
-from podcast_compass import config, llm
+from podcast_compass import config, llm, messages
 from podcast_compass.models import OverviewOnly
 
 pytestmark = pytest.mark.skipif(
@@ -51,7 +51,7 @@ def test_real_sdk_invalid_key_maps_to_a_config_failure():
 
     assert failure.kind == "config"
     assert failure.use_fallback is False
-    assert failure.user_message == llm.CONFIG_MESSAGE
+    assert failure.user_message == messages.REJECTED_KEY
 
     # The two facts the classifier depends on, asserted against the real SDK.
     assert getattr(observed, "status_code", None) in (400, 401)
@@ -71,6 +71,6 @@ def test_generate_surfaces_the_config_message_and_does_not_fall_back():
     with pytest.raises(llm.LlmError) as excinfo:
         llm.generate(counting_call, "hello", OverviewOnly)
 
-    assert excinfo.value.user_message == llm.CONFIG_MESSAGE
+    assert excinfo.value.user_message == messages.REJECTED_KEY
     # A bad key is not worth trying on the fallback model.
     assert attempts == [config.PRIMARY_MODEL]

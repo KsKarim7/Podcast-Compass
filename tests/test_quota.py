@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from podcast_compass import quota
+from podcast_compass import messages, quota
 from podcast_compass.llm import Outcome
 from podcast_compass.quota import (
     MAX_DAILY_REQUESTS,
@@ -150,7 +150,7 @@ class TestCheck:
         session = SessionUsage(actions=1, last_action_at=100.0)
         decision = check(session, daily, monotonic=100.0 + MIN_SECONDS_BETWEEN_ACTIONS / 2)
         assert decision.allowed is False
-        assert decision.message == quota.TOO_SOON_MESSAGE
+        assert decision.message == messages.TOO_SOON
 
     def test_allows_once_the_gap_has_passed(self, daily):
         session = SessionUsage(actions=1, last_action_at=100.0)

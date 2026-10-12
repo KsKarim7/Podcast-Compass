@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from typing import Callable
 
-from . import config
+from . import config, messages
 
 # One action can cost: the first call, a fallback call, and a repair retry.
 REQUESTS_PER_ACTION = 3
@@ -30,15 +30,6 @@ MAX_SESSION_ACTIONS = 10
 MAX_DAILY_REQUESTS = 400
 MIN_SECONDS_BETWEEN_ACTIONS = 4.0
 
-SESSION_LIMIT_MESSAGE = (
-    f"You have run {MAX_SESSION_ACTIONS} generations in this session, which is this "
-    "demo's limit. The example episode still works."
-)
-DAILY_LIMIT_MESSAGE = (
-    f"This demo is limited to {MAX_DAILY_REQUESTS} requests a day to stay inside the "
-    "free tier. The example episode still works, and the limit resets daily."
-)
-TOO_SOON_MESSAGE = "That was quick — wait a moment before generating again."
 
 
 def _utc_today(now: Callable[[], datetime]) -> date:
@@ -129,15 +120,15 @@ def check(
 ) -> Decision:
     """Would another action be allowed? Checked before anything is reserved."""
     if session.actions >= MAX_SESSION_ACTIONS:
-        return Decision(False, SESSION_LIMIT_MESSAGE)
+        return Decision(False, messages.SESSION_CAP.format(limit=MAX_SESSION_ACTIONS))
 
     if session.last_action_at is not None:
         waited = monotonic - session.last_action_at
         if waited < MIN_SECONDS_BETWEEN_ACTIONS:
-            return Decision(False, TOO_SOON_MESSAGE)
+            return Decision(False, messages.TOO_SOON)
 
     if daily.remaining() < cost:
-        return Decision(False, DAILY_LIMIT_MESSAGE)
+        return Decision(False, messages.DAILY_CAP.format(limit=daily.limit))
 
     return Decision(True)
 
