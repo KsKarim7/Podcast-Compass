@@ -100,12 +100,6 @@ class TestChapterHeading:
         assert render.chapter_heading(item) == "Timing"
 
 
-class TestAnswerFeedback:
-    def test_correct_and_incorrect(self):
-        assert render.answer_feedback(2, 2) == "Correct"
-        assert render.answer_feedback(1, 2) == "Not quite"
-
-
 class TestNotices:
     def test_data_use_notice_names_the_three_facts(self):
         text = render.DATA_USE_NOTICE.casefold()

@@ -70,17 +70,9 @@ MALFORMED_TWICE = (
 UNKNOWN = "Something went wrong on our side. Please try again."
 
 # --- grounding --------------------------------------------------------------------
-GROUNDING_REJECTED = (
-    "We could not verify enough of that result against your transcript, so we are not "
-    "showing it."
-)
 GROUNDING_REJECTED_BECAUSE = (
     "We could not verify enough of that result against your transcript, so we are not "
     "showing it: {reason}."
-)
-REVISION_REJECTED = (
-    "We could not verify that revision against your transcript, so we have kept the "
-    "previous version."
 )
 REVISION_REJECTED_BECAUSE = (
     "We could not verify that revision against your transcript, so we have kept the "

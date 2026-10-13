@@ -55,7 +55,3 @@ def chapter_heading(item: VerifiedChapter) -> str:
 
 def evidence_caption(segment_id: str, quote: str) -> str:
     return f'{segment_id}: "{quote}"'
-
-
-def answer_feedback(chosen_index: int, correct_index: int) -> str:
-    return "Correct" if chosen_index == correct_index else "Not quite"
