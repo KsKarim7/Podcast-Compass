@@ -131,7 +131,7 @@ def store(
     detection: str,
     source: str,
     *,
-    rejection_message: str = messages.GROUNDING_REJECTED,
+    rejection_template: str = messages.GROUNDING_REJECTED_BECAUSE,
 ) -> bool:
     """Validate and keep both the raw result and the grounded view.
 
@@ -148,7 +148,9 @@ def store(
         grounded = validate(raw, lookup)
     except GroundingRejected as exc:
         logger.info("result rejected by grounding: %s", exc)
-        st.session_state["error"] = rejection_message
+        # Show the reason, not only the generic line: "only 1 chapter could be
+        # confirmed" tells a user whether to retry or to paste something longer.
+        st.session_state["error"] = rejection_template.format(reason=exc)
         return False
 
     st.session_state["raw"] = raw
@@ -202,7 +204,7 @@ def run_generation(text: str) -> None:
         st.session_state["error"] = blocked
         return
 
-    prompt = prompts.build_generation_prompt(render_for_prompt(segments))
+    prompt = prompts.build_generation_prompt(render_for_prompt(segments), len(segments))
 
     with st.status("Reading the transcript and generating…", expanded=False) as status:
         result, error = call_with_quota(
@@ -267,7 +269,7 @@ def run_revision(section: str, instruction: str) -> None:
         segments,
         st.session_state["detection"],
         st.session_state["source"],
-        rejection_message=messages.REVISION_REJECTED,
+        rejection_template=messages.REVISION_REJECTED_BECAUSE,
     )
     if not applied:
         # The previous result is still on screen, so there is nothing to undo.

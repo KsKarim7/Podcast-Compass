@@ -25,8 +25,8 @@ UNSUPPORTED_FILE_TYPE = (
 EMPTY_INPUT = "That file has no text in it."
 NOTHING_SUBMITTED = "Paste a transcript or upload a file first."
 TOO_SHORT = (
-    "That transcript is {count:,} characters. We need at least "
-    f"{config.MIN_CHARS:,} to work with."
+    "That transcript is {count:,} words. We need at least "
+    f"{config.MIN_WORDS} words to build chapters and a quiz."
 )
 TOO_LONG = (
     "That transcript is {count:,} characters. The limit is "
@@ -75,9 +75,17 @@ GROUNDING_REJECTED = (
     "We could not verify enough of that result against your transcript, so we are not "
     "showing it."
 )
+GROUNDING_REJECTED_BECAUSE = (
+    "We could not verify enough of that result against your transcript, so we are not "
+    "showing it: {reason}."
+)
 REVISION_REJECTED = (
     "We could not verify that revision against your transcript, so we have kept the "
     "previous version."
+)
+REVISION_REJECTED_BECAUSE = (
+    "We could not verify that revision against your transcript, so we have kept the "
+    "previous version: {reason}."
 )
 
 # --- our own caps -----------------------------------------------------------------

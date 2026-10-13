@@ -60,7 +60,7 @@ Accepted: pasted text, `.txt`, `.vtt`, `.srt`. One transcript at a time.
 |---|---|---|
 | Max upload file size | 2 MB | Enforced by Streamlit before our code runs |
 | Max characters after decoding | 150,000 | The real cap; see arithmetic below |
-| Min characters | 200 | Below this there is nothing to summarise |
+| Min words | 250 | Below this the app cannot build what it promises; see below |
 
 **Why 150,000 characters.** At roughly 4 characters per token for English that is about 37,500
 input tokens, and at 130–150 words per minute it is roughly 3 hours of speech — longer than almost
@@ -71,6 +71,10 @@ own limits are far larger — `gemini-3.5-flash-lite` accepts
 [1,048,576 input tokens and returns up to 65,536](https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite)
 — so the cap is our choice for latency and quota, not a model ceiling. It leaves room for the repair
 retry and the revision calls described in section 7 within the same minute.
+
+**Why the minimum is in words.** What the app can produce depends on how many segments a transcript makes, not how many characters it has. Chapters must start at strictly increasing segments, so a one-segment transcript cannot carry two chapters however good the model is. At 120 words per segment, 250 words guarantees three segments of plain text. The check runs before any API call, because discovering it afterwards wastes a request — which is exactly what happened in live testing with a 70-word paste.
+
+The minimum does not guarantee two segments for subtitles, because a single cue is never split: one 250-word cue is still one segment. That is why section 6's chapter requirement also adapts to the input rather than relying on this limit alone.
 
 **Two layers, because bytes and characters are not the same thing.** `maxUploadSize` in
 `.streamlit/config.toml` is in MB and [defaults to 200](https://docs.streamlit.io/develop/api-reference/configuration/config.toml);
@@ -88,7 +92,8 @@ maxUploadSize = 2
 > (about 3 hours of speech). `.vtt` and `.srt` give you timestamps; plain text does not.
 
 On rejection the message names the actual number, for example: "That transcript is 184,512
-characters. The limit is 150,000 — about 3 hours of speech. Try a shorter section."
+characters. The limit is 150,000 — about 3 hours of speech. Try a shorter section.", or
+"That transcript is 70 words. We need at least 250 words to build chapters and a quiz."
 
 ## 3. Parsing and segmentation
 
@@ -310,8 +315,16 @@ are trying to catch.
 | Theme | Kept | Themes carry no evidence and make no factual claim beyond the summary |
 
 **Whole-response rejection.** The response is rejected when any of these is true: the summary is
-empty; fewer than 2 chapters are verified; no quiz question survives; or more than half of all
-evidence-carrying items failed. The last one is the signal that matters — scattered failures are
+empty; fewer verified chapters than the transcript can support; no quiz question survives; or more
+than half of all evidence-carrying items failed.
+
+**The chapter requirement follows the input:** `min(2, max(1, segment_count))`. A fixed minimum of
+two was a rule a one-segment transcript could never satisfy, so every such result was rejected
+after the model had already been paid for. The requirement can now never be impossible.
+
+The prompt's requested chapter count adapts the same way, from `prompts.chapter_range`: asking a
+three-segment transcript for 4-8 chapters guarantees unverifiable chapters, which is a failure
+better avoided than explained. The last one is the signal that matters — scattered failures are
 normal, but a majority failure means the model was not working from the transcript. The threshold is
 *more than* half, so 4 failures out of 8 items is still shown.
 
@@ -643,7 +656,7 @@ trusted. `tests/test_errors.py` has a test per row.
 | 503, 500, 504 | "The model is busy right now. We tried a second model and it is also unavailable — please try again in a minute." | SDK retries within our bounds, then the fallback |
 | Timeout | "That took longer than 45 seconds, so we stopped waiting. A shorter transcript will be faster." The number is read from `config.REQUEST_TIMEOUT_MS`, so it cannot drift | Classified transient, fallback tried once |
 | Malformed JSON after the repair retry | "The model returned something we could not read, twice. Please try again." | No partial result is shown |
-| Grounding rejects the whole response | "We could not verify enough of that result against your transcript, so we are not showing it." plus a **Try again** button | No automatic retry: the output parsed, so a second call is the user's choice to make, not ours |
+| Grounding rejects the whole response | "We could not verify enough of that result against your transcript, so we are not showing it: only 1 chapter could be confirmed against your transcript, and we need 2." plus a **Try again** button. The reason is shown, not just the generic line, so a user can tell whether to retry or paste something longer | No automatic retry: the output parsed, so a second call is the user's choice to make, not ours |
 | Daily cap reached | "This demo is limited to 400 requests a day to stay inside the free tier. The example episode still works. The limit resets daily." | Our own counter, before any call. Requests, not generations: see section 10 |
 | Per-session cap reached | "You have run 10 generations in this session, which is this demo's limit. The example episode still works." | Our own counter |
 | Too soon after the last generation | "That was quick — wait a moment before generating again." | Our own counter, 4-second minimum gap |

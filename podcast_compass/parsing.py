@@ -109,12 +109,27 @@ def detect_format(text: str) -> Format:
     return "text"
 
 
+def count_words(text: str) -> int:
+    """Words as the segmenter counts them, so the limit and the segments agree."""
+    return len(text.split())
+
+
 def validate_length(text: str) -> None:
+    """Checked before any API call.
+
+    The minimum is in words rather than characters because what the app can produce
+    depends on how many segments the transcript makes: chapters start at strictly
+    increasing segments, so a one-segment transcript cannot have two chapters however
+    good the model is. Rejecting it here costs nothing; finding out after the call
+    wastes a request.
+    """
     stripped = text.strip()
     if not stripped:
         raise InputError(messages.EMPTY_INPUT)
-    if len(stripped) < config.MIN_CHARS:
-        raise InputError(messages.TOO_SHORT.format(count=len(stripped)))
+
+    words = count_words(stripped)
+    if words < config.MIN_WORDS:
+        raise InputError(messages.TOO_SHORT.format(count=words))
     if len(stripped) > config.MAX_CHARS:
         raise InputError(messages.TOO_LONG.format(count=len(stripped)))
 

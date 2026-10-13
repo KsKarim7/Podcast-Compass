@@ -123,14 +123,15 @@ class TestInputValidation:
 
     def test_short_transcript_is_rejected_with_the_real_count(self, app):
         submit_text(app, "too short")
-        assert "9 characters" in errors(app)
+        assert "2 words" in errors(app)
 
     def test_oversized_transcript_is_rejected_with_the_real_count(self, app):
-        submit_text(app, "x" * (config.MAX_CHARS + 5))
-        assert f"{config.MAX_CHARS + 5:,} characters" in errors(app)
+        oversized = " ".join(["abcd"] * (config.MAX_CHARS // 5 + 10))
+        submit_text(app, oversized)
+        assert f"{len(oversized):,} characters" in errors(app)
 
     def test_valid_input_is_parsed_then_stops_at_the_missing_key(self, app):
-        submit_text(app, "fermentation depends on temperature. " * 20)
+        submit_text(app, "fermentation depends on temperature. " * 70)
         assert not app.exception
         # Detection is still reported, so the user learns about their file either way.
         assert "plain text" in captions(app)
@@ -149,7 +150,7 @@ class TestInputValidation:
         button(app, "Generate").click()
         app.run()
         # One cycle produced the verdict; no second press was needed.
-        assert "9 characters" in errors(app)
+        assert "2 words" in errors(app)
 
 
 class TestMissingSample:
@@ -272,7 +273,7 @@ class TestQuotaInTheInterface:
         keyed_app.session_state["usage"] = quota.SessionUsage(
             actions=quota.MAX_SESSION_ACTIONS, last_action_at=None
         )
-        submit_text(keyed_app, "fermentation depends on temperature. " * 20)
+        submit_text(keyed_app, "fermentation depends on temperature. " * 70)
         assert not keyed_app.exception
         assert "this session" in errors(keyed_app)
 
@@ -282,7 +283,7 @@ class TestQuotaInTheInterface:
         keyed_app.session_state["usage"] = quota.SessionUsage(
             actions=1, last_action_at=_time.monotonic()
         )
-        submit_text(keyed_app, "fermentation depends on temperature. " * 20)
+        submit_text(keyed_app, "fermentation depends on temperature. " * 70)
         assert messages.TOO_SOON in errors(keyed_app)
 
 

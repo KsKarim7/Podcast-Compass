@@ -1,12 +1,21 @@
 """Limits that both the UI and the parser enforce."""
 
 MAX_UPLOAD_MB = 2
-MIN_CHARS = 200
 MAX_CHARS = 150_000
 
 # A segment has to be big enough that a quote inside it is a real locator, and small
 # enough that a chapter start is precise. 120 words is roughly 45-55 seconds of speech.
 WORDS_PER_SEGMENT = 120
+
+# The user-facing minimum is counted in words, not characters, because what the app can
+# produce depends on how many segments the transcript makes. Chapters must start at
+# strictly increasing segments, so a single-segment transcript cannot have two chapters
+# at all. 250 words guarantees three segments, which is enough to build something.
+MIN_WORDS = 250
+
+# An internal floor only, used when subtitle markup is stripped and we decide whether
+# enough prose survived to treat the file as plain text.
+MIN_CHARS = 200
 
 # Above this share of unreadable cues we stop trusting the file's structure.
 MAX_MALFORMED_CUE_RATIO = 0.2
@@ -34,7 +43,7 @@ REPAIR_BUDGET_S = 60.0
 SLEEP_HOURS = 12
 
 LIMITS_TEXT = (
-    "Paste a transcript, or upload .txt, .vtt or .srt — up to "
-    f"{MAX_UPLOAD_MB} MB and {MAX_CHARS:,} characters (about 3 hours of speech). "
-    ".vtt and .srt give you timestamps; plain text does not."
+    "Paste a transcript, or upload .txt, .vtt or .srt — at least "
+    f"{MIN_WORDS} words, and up to {MAX_UPLOAD_MB} MB or {MAX_CHARS:,} characters "
+    "(about 3 hours of speech). .vtt and .srt give you timestamps; plain text does not."
 )

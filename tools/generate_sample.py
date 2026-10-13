@@ -41,7 +41,7 @@ def main() -> int:
         f"{len(segments)} segments, {len(transcript):,} chars"
     )
 
-    prompt = prompts.build_generation_prompt(render_for_prompt(segments))
+    prompt = prompts.build_generation_prompt(render_for_prompt(segments), len(segments))
     print(f"prompt: {len(prompt):,} chars")
 
     started = time.monotonic()

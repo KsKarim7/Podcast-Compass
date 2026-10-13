@@ -39,13 +39,13 @@ class TestInputFailures:
     def test_below_minimum_length(self):
         with pytest.raises(InputError) as exc:
             parse_transcript("far too short")
-        assert str(exc.value) == messages.TOO_SHORT.format(count=13)
+        assert str(exc.value) == messages.TOO_SHORT.format(count=3)
 
     def test_over_the_character_cap(self):
-        oversized = "x" * (config.MAX_CHARS + 7)
+        oversized = " ".join(["abcd"] * (config.MAX_CHARS // 5 + 10))
         with pytest.raises(InputError) as exc:
             parse_transcript(oversized)
-        assert str(exc.value) == messages.TOO_LONG.format(count=config.MAX_CHARS + 7)
+        assert str(exc.value) == messages.TOO_LONG.format(count=len(oversized))
 
     def test_undecodable_bytes(self):
         with pytest.raises(InputError) as exc:
@@ -53,15 +53,21 @@ class TestInputFailures:
         assert str(exc.value) == messages.BAD_ENCODING
 
     def test_damaged_cue_file(self):
-        broken = "\n\n".join(f"{i} no arrow in this block" for i in range(20))
-        text = "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nthe only good cue\n\n" + broken
+        # Long enough to clear the word minimum, so the cue checks are what reject it.
+        broken = "\n\n".join(f"{i} no arrow in this block at all" for i in range(20))
+        text = (
+            "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n"
+            + " ".join(["cue"] * 140)
+            + "\n\n"
+            + broken
+        )
         with pytest.raises(InputError) as exc:
             parse_transcript(text)
         assert str(exc.value) == messages.DAMAGED_CUES.format(good=1, total=21)
 
     def test_cue_file_with_nothing_readable(self):
         timings = "\n\n".join(
-            f"{i}\n00:00:0{i % 10}.000 --> 00:00:0{(i + 1) % 10}.000" for i in range(30)
+            f"{i}\n00:00:0{i % 10}.000 --> 00:00:0{(i + 1) % 10}.000" for i in range(130)
         )
         with pytest.raises(InputError) as exc:
             parse_transcript(f"WEBVTT\n\n{timings}")
@@ -70,7 +76,7 @@ class TestInputFailures:
     def test_cue_file_falls_back_to_plain_text(self):
         from podcast_compass import render
 
-        body = "\n\n".join(["sourdough " * 30] * 3)
+        body = "\n\n".join(["sourdough " * 100] * 3)
         parsed = parse_transcript(f"WEBVTT\n\n{body}")
         assert parsed.fell_back_to_text is True
         assert parsed.has_timestamps is False
@@ -161,7 +167,7 @@ class TestGroundingFailures:
         raw = handwritten_result()
         broken = raw.model_copy(deep=True)
         broken.overview.summary = "  "
-        with pytest.raises(GroundingRejected, match="summary was empty"):
+        with pytest.raises(GroundingRejected, match="summary came back empty"):
             validate(broken, lookup)
 
 
@@ -212,7 +218,7 @@ class TestAppLevelFailures:
     def test_missing_key(self):
         at = fresh_app()
         at.run()
-        submit_text(at, "fermentation depends on temperature. " * 20)
+        submit_text(at, "fermentation depends on temperature. " * 70)
         assert messages.MISSING_KEY in errors(at)
 
     def test_unsupported_file_type(self):
@@ -302,7 +308,7 @@ class TestFailedRevisionKeepsTheGoodResult:
         press(at, "Revise this section")
 
         assert not at.exception
-        assert messages.REVISION_REJECTED in errors(at)
+        assert "kept the previous version" in errors(at)
         # The good result is still on screen, unchanged.
         assert len(at.session_state["result"].quiz) == questions_before
         assert at.session_state["result"].summary == before.summary
@@ -426,7 +432,7 @@ class TestWholeResultRejectionInTheInterface:
     def test_shows_the_rejection_message(self, monkeypatch):
         at = self._generate(monkeypatch, [])
         assert not at.exception
-        assert messages.GROUNDING_REJECTED in errors(at)
+        assert "could not verify enough of that result" in errors(at)
 
     def test_shows_a_try_again_button(self, monkeypatch):
         at = self._generate(monkeypatch, [])

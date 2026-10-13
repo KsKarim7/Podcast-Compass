@@ -5,6 +5,7 @@ from podcast_compass.grounding import VerifiedChapter, validate
 from podcast_compass.models import Chapter, Evidence
 from podcast_compass.parsing import parse_transcript
 from podcast_compass.segments import build_segments, segment_lookup
+from tests.conftest import long_enough
 from tests.fixtures import handwritten_result
 
 @pytest.fixture
@@ -49,13 +50,13 @@ class TestDetectionLine:
         assert "3 segments" in line
 
     def test_plain_text_says_no_timestamps(self):
-        parsed = parse_transcript("word " * 100)
+        parsed = parse_transcript(long_enough())
         line = render.detection_line(parsed, 1)
         assert "plain text" in line
         assert "no timestamps" in line
 
     def test_fallback_is_named_honestly(self):
-        body = "\n\n".join(["sourdough " * 30] * 3)
+        body = "\n\n".join(["sourdough " * 100] * 3)
         parsed = parse_transcript(f"WEBVTT\n\n{body}")
         line = render.detection_line(parsed, 2)
         assert "could not read" in line
@@ -63,19 +64,23 @@ class TestDetectionLine:
 
     def test_skipped_cues_are_reported(self):
         good = "\n\n".join(
-            [f"00:00:{i:02d}.000 --> 00:00:{i + 1:02d}.000\nline {i} here" for i in range(10)]
+            [
+                f"00:00:{i:02d}.000 --> 00:00:{i + 1:02d}.000\nline {i} here "
+                + " ".join(["pad"] * 30)
+                for i in range(10)
+            ]
         )
-        parsed = parse_transcript(f"WEBVTT\n\n{good}\n\nstray block with no arrow\n")
+        parsed = parse_transcript(f"WEBVTT\n\n{good}\n\nstray block with no arrow in it\n")
         line = render.detection_line(parsed, 1)
         assert "1 unreadable cue skipped" in line
 
     def test_counts_are_singular_when_there_is_one(self):
-        parsed = parse_transcript("word " * 100)
+        parsed = parse_transcript(long_enough())
         assert "1 segment ·" in render.detection_line(parsed, 1) + " ·"
         assert "1 segments" not in render.detection_line(parsed, 1)
 
     def test_counts_are_plural_when_there_are_several(self):
-        parsed = parse_transcript("word " * 100)
+        parsed = parse_transcript(long_enough())
         assert "3 segments" in render.detection_line(parsed, 3)
 
 

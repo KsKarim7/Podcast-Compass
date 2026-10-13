@@ -113,8 +113,25 @@ class GroundedResult:
     has_timestamps: bool
 
 
+MIN_VERIFIED_CHAPTERS = 2
+
+
+def required_chapters(segment_count: int) -> int:
+    """How many verified chapters a result must have, given this transcript.
+
+    Chapters must start at strictly increasing segments, so a transcript of one segment
+    can only ever have one chapter. Demanding two would reject every such result no
+    matter what the model returned. The requirement therefore follows the input.
+    """
+    return min(MIN_VERIFIED_CHAPTERS, max(1, segment_count))
+
+
 class GroundingRejected(Exception):
-    """Too little survived to be worth showing. The caller retries or reports."""
+    """Too little survived to be worth showing.
+
+    The message is written for a user, not a log: it is shown next to the generic
+    rejection line so the reason is visible rather than buried.
+    """
 
 
 def _filter_takeaways(
@@ -217,19 +234,25 @@ def validate(result: EpisodeResult, segments: dict[str, Segment]) -> GroundedRes
     )
     failed_items = report.dropped_total + report.chapters_flagged
 
+    needed = required_chapters(len(segments))
+
     if not result.overview.summary.strip():
-        raise GroundingRejected("the summary was empty")
-    if report.chapters_verified < 2:
+        raise GroundingRejected("the summary came back empty")
+    if report.chapters_verified < needed:
         raise GroundingRejected(
-            f"only {report.chapters_verified} chapter(s) could be verified"
+            f"only {plural(report.chapters_verified, 'chapter')} could be confirmed "
+            f"against your transcript, and we need {needed}"
         )
     if not quiz:
-        raise GroundingRejected("no quiz question survived validation")
+        raise GroundingRejected(
+            "none of the quiz questions could be confirmed against your transcript"
+        )
     if grounded_items and failed_items > grounded_items / 2:
         # Scattered failures are normal. A majority means the model was not working
         # from this transcript at all, and retrying is better than showing the remains.
         raise GroundingRejected(
-            f"{failed_items} of {grounded_items} grounded items failed validation"
+            f"{failed_items} of {grounded_items} items could not be confirmed "
+            "against your transcript"
         )
 
     has_timestamps = any(item.start_seconds is not None for item in chapters)

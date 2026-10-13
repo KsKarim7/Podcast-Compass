@@ -68,19 +68,31 @@ class TestLengthLimits:
         with pytest.raises(InputError, match="no text in it"):
             validate_length("   \n\n\t  ")
 
-    def test_below_minimum_rejected_with_the_real_count(self):
+    def test_below_minimum_rejected_with_the_real_word_count(self):
         with pytest.raises(InputError) as excinfo:
-            validate_length("short")
-        assert "5 characters" in str(excinfo.value)
-        assert f"{config.MIN_CHARS:,}" in str(excinfo.value)
+            validate_length("only four words here")
+        assert "4 words" in str(excinfo.value)
+        assert f"{config.MIN_WORDS} words" in str(excinfo.value)
+
+    def test_just_under_the_word_minimum_is_rejected(self):
+        with pytest.raises(InputError) as excinfo:
+            validate_length(words(config.MIN_WORDS - 1))
+        assert f"{config.MIN_WORDS - 1} words" in str(excinfo.value)
+
+    def test_exactly_the_word_minimum_is_accepted(self):
+        validate_length(words(config.MIN_WORDS))
 
     def test_over_cap_rejected_with_the_real_count(self):
+        oversized = words(config.MAX_CHARS // 5 + 10, "abcd")
+        assert len(oversized) > config.MAX_CHARS
         with pytest.raises(InputError) as excinfo:
-            validate_length("x" * (config.MAX_CHARS + 12))
-        assert f"{config.MAX_CHARS + 12:,} characters" in str(excinfo.value)
+            validate_length(oversized)
+        assert f"{len(oversized):,} characters" in str(excinfo.value)
 
-    def test_at_the_cap_is_accepted(self):
-        validate_length("x" * config.MAX_CHARS)
+    def test_just_inside_the_cap_is_accepted(self):
+        text = words(config.MAX_CHARS // 5 - 10, "abcd")
+        assert len(text) <= config.MAX_CHARS
+        validate_length(text)
 
 
 class TestCueParsing:
@@ -95,7 +107,7 @@ class TestCueParsing:
     def test_srt_comma_separator_parsed(self, srt_text):
         cues, malformed = parse_cues(srt_text)
         assert malformed == 0
-        assert len(cues) == 2
+        assert len(cues) == 3
         assert cues[1].start == 4.5
 
     def test_missing_hour_field_accepted(self):
@@ -170,14 +182,20 @@ class TestParseTranscript:
         assert "\r" not in parsed.text
 
     def test_mostly_malformed_file_rejected(self):
-        broken = "\n\n".join([f"{i} no arrow here at all" for i in range(20)])
-        text = "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nonly good cue\n\n" + broken
+        # Long enough to reach the cue checks: the word minimum is tested separately.
+        broken = "\n\n".join([f"{i} no arrow here at all in this block" for i in range(20)])
+        text = (
+            "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n"
+            + words(140, "cue")
+            + "\n\n"
+            + broken
+        )
         with pytest.raises(InputError, match="looks damaged"):
             parse_transcript(text)
 
     def test_vtt_with_no_cues_but_readable_text_falls_back(self):
         # Enough prose survives markup stripping to be worth keeping.
-        body = "\n\n".join([words(30, "sourdough")] * 3)
+        body = "\n\n".join([words(100, "sourdough")] * 3)
         with_header = f"WEBVTT\n\n{body}"
         parsed = parse_transcript(with_header)
         assert parsed.detected == "text"
@@ -185,9 +203,9 @@ class TestParseTranscript:
         assert parsed.has_timestamps is False
 
     def test_header_only_file_rejected(self):
-        # Long enough to pass the length check, but nothing survives markup stripping.
+        # Enough "words" to clear the minimum, but nothing survives markup stripping.
         timings = "\n\n".join(
-            [f"{i}\n00:00:0{i % 10}.000 --> 00:00:0{(i + 1) % 10}.000" for i in range(30)]
+            [f"{i}\n00:00:0{i % 10}.000 --> 00:00:0{(i + 1) % 10}.000" for i in range(130)]
         )
         with pytest.raises(InputError, match="could not read any subtitle cues"):
             parse_transcript(f"WEBVTT\n\n{timings}")
@@ -195,11 +213,41 @@ class TestParseTranscript:
     def test_malformed_within_tolerance_is_kept_and_counted(self):
         good = "\n\n".join(
             [
-                f"00:00:{i:02d}.000 --> 00:00:{i + 1:02d}.000\nline {i}"
+                f"00:00:{i:02d}.000 --> 00:00:{i + 1:02d}.000\nline {i} " + words(30)
                 for i in range(10)
             ]
         )
-        text = f"WEBVTT\n\n{good}\n\nstray block with no arrow\n"
+        text = f"WEBVTT\n\n{good}\n\nstray block with no arrow in it\n"
         parsed = parse_transcript(text)
         assert parsed.malformed_cues == 1
         assert len(parsed.cues) == 10
+
+
+class TestWordMinimumGuaranteesEnoughSegments:
+    """Why the minimum is in words: it is what makes two chapters possible at all."""
+
+    def test_the_minimum_yields_at_least_two_segments_of_plain_text(self):
+        from podcast_compass.segments import build_segments
+
+        parsed = parse_transcript(words(config.MIN_WORDS))
+        assert len(build_segments(parsed)) >= 2
+
+    def test_one_word_under_the_minimum_is_refused_before_any_call(self):
+        with pytest.raises(InputError, match="at least"):
+            parse_transcript(words(config.MIN_WORDS - 1))
+
+    def test_a_single_long_cue_still_makes_only_one_segment(self):
+        # The word minimum does not guarantee two segments for subtitles: one cue is
+        # never split. This is why the chapter requirement also adapts to the input.
+        from podcast_compass.segments import build_segments
+
+        cue = "00:00:00.000 --> 00:05:00.000\n" + words(config.MIN_WORDS + 50)
+        parsed = parse_transcript(f"WEBVTT\n\n{cue}")
+        assert len(parsed.cues) == 1
+        assert len(build_segments(parsed)) == 1
+
+    def test_word_count_matches_the_segmenter(self):
+        from podcast_compass.parsing import count_words
+
+        assert count_words("  two   words  ") == 2
+        assert count_words("") == 0

@@ -241,7 +241,7 @@ class TestChapters:
 
 class TestWholeResponseRejection:
     def test_empty_summary_rejected(self, segments):
-        with pytest.raises(GroundingRejected, match="summary was empty"):
+        with pytest.raises(GroundingRejected, match="summary came back empty"):
             validate(result(summary="   "), segments)
 
     def test_fewer_than_two_verified_chapters_rejected(self, segments):
@@ -249,13 +249,13 @@ class TestWholeResponseRejection:
             validate(result(chapters=[chapter()]), segments)
 
     def test_no_surviving_quiz_question_rejected(self, segments):
-        with pytest.raises(GroundingRejected, match="no quiz question"):
+        with pytest.raises(GroundingRejected, match="none of the quiz questions"):
             validate(result(quiz=[question("S003", "nowhere in this transcript")]), segments)
 
     def test_majority_failure_rejected(self, segments):
         # 5 of 9 grounded items fail: 6 takeaways (1 good), 1 question, 2 chapters.
         bad_takeaways = [takeaway("S001", "invented text number one")] * 5
-        with pytest.raises(GroundingRejected, match="failed validation"):
+        with pytest.raises(GroundingRejected, match="could not be confirmed"):
             validate(result(takeaways=[takeaway()] + bad_takeaways), segments)
 
     def test_exactly_half_failing_is_tolerated(self, segments):
@@ -287,3 +287,86 @@ class TestPurity:
         assert not hasattr(grounded.chapters[0].chapter, "start_seconds")
         assert grounded.chapters[0].start_seconds is not None
         assert original.chapters[0].start_segment_id == "S001"
+
+
+class TestChapterRequirementFollowsTheInput:
+    """The live bug: a one-segment transcript could never satisfy "two chapters".
+
+    A 70-word paste made a single segment. Chapter starts must be strictly increasing
+    segments, so two verified chapters were impossible and every attempt was rejected
+    after the model had already been paid for.
+    """
+
+    def test_requirement_never_exceeds_the_segment_count(self):
+        from podcast_compass.grounding import required_chapters
+
+        assert required_chapters(1) == 1
+        assert required_chapters(2) == 2
+        assert required_chapters(3) == 2
+        assert required_chapters(50) == 2
+
+    def test_a_degenerate_zero_segment_input_still_asks_for_one(self):
+        from podcast_compass.grounding import required_chapters
+
+        assert required_chapters(0) == 1
+
+    def test_one_segment_with_one_verified_chapter_is_accepted(self):
+        # Previously rejected no matter what the model returned.
+        single = {
+            "S001": Segment(
+                id="S001",
+                text=SEG_TEXT["S001"] + " " + SEG_TEXT["S002"],
+                start=0.0,
+                end=59.0,
+            )
+        }
+        grounded = validate(
+            result(
+                chapters=[chapter()],
+                takeaways=[takeaway()],
+                quiz=[question("S001", "the same flour as a bakery")],
+            ),
+            single,
+        )
+        assert grounded.report.chapters_verified == 1
+        assert len(grounded.chapters) == 1
+
+    def test_two_segments_still_need_two_chapters(self):
+        two = {
+            sid: Segment(id=sid, text=SEG_TEXT[sid], start=float(i * 30), end=float(i * 30 + 29))
+            for i, sid in enumerate(("S001", "S002"))
+        }
+        with pytest.raises(GroundingRejected, match="only 1 chapter could be confirmed"):
+            validate(result(chapters=[chapter()], quiz=[question("S002", "the same flour as a bakery")]), two)
+
+
+class TestRejectionReasonsAreUserFacing:
+    def test_empty_summary_reason(self, segments):
+        with pytest.raises(GroundingRejected) as exc:
+            validate(result(summary="  "), segments)
+        assert str(exc.value) == "the summary came back empty"
+
+    def test_chapter_shortfall_names_the_numbers(self, segments):
+        with pytest.raises(GroundingRejected) as exc:
+            validate(result(chapters=[chapter()]), segments)
+        assert "only 1 chapter could be confirmed" in str(exc.value)
+        assert "we need 2" in str(exc.value)
+
+    def test_quiz_reason_is_plain_english(self, segments):
+        with pytest.raises(GroundingRejected) as exc:
+            validate(result(quiz=[question("S003", "nowhere in this transcript")]), segments)
+        assert "none of the quiz questions could be confirmed" in str(exc.value)
+
+    def test_no_reason_mentions_code_or_internals(self, segments):
+        for build in (
+            lambda: result(summary=" "),
+            lambda: result(chapters=[chapter()]),
+            lambda: result(quiz=[question("S003", "nowhere in this transcript")]),
+        ):
+            try:
+                validate(build(), segments)
+            except GroundingRejected as exc:
+                text = str(exc)
+                assert "validation" not in text
+                assert "grounded items" not in text
+                assert "_" not in text
