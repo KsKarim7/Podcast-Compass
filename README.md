@@ -180,3 +180,17 @@ docs/                   Research, engineering notes, debugging log
 
 The full version, including how incorrect output and failed requests are handled, is in
 [docs/ENGINEERING.md, section D](docs/ENGINEERING.md#d-reliability-and-limitations).
+
+## Next steps
+
+The three things I would do next, in this order:
+
+1. **Make the request limit real, with a shared store** — the counters reset whenever the
+   app restarts, so the daily cap is advisory rather than enforced.
+2. **Measure quote-matching failures, then decide whether to loosen the rule** — I know the
+   check can drop a legitimate item, and I do not know how often.
+3. **Chunk long transcripts instead of refusing them** — removes the input ceiling, at the
+   cost of several requests per episode.
+
+Why each one, what I would do, and what it would cost are in
+[docs/ENGINEERING.md, Next steps](docs/ENGINEERING.md#next-steps).
