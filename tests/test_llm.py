@@ -62,7 +62,16 @@ class RecordingCall:
         self.calls = []
 
     def __call__(self, *, model, system_instruction, prompt, schema):
-        self.calls.append({"model": model, "prompt": prompt, "schema": schema})
+        # Record every argument, including system_instruction: anything the fake drops
+        # is an argument no test can check.
+        self.calls.append(
+            {
+                "model": model,
+                "system_instruction": system_instruction,
+                "prompt": prompt,
+                "schema": schema,
+            }
+        )
         result = self.results.pop(0) if self.results else VALID
         if isinstance(result, Exception):
             raise result
