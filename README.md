@@ -175,7 +175,7 @@ docs/                   Research, engineering notes, debugging log
   visitors. The 10-generation limit is per browser session, so opening a new session starts a
   fresh allowance. The process-wide 400-requests-a-day counter is the real bound, and it
   lives in the running process's memory, so it resets whenever the app restarts or wakes.
-  Together they guard against accidental overuse; they are not an enforced limit.
+  Together they guard against accidental overuse; they are not a durable limit.
 - **Latency depends more on provider load than on input size.** On 2026-10-13 two identical
   291-word pastes took 44.8 s and 15.6 s, and a 147,987-character file took 38.1 s. All three
   completed, but the slowest was a short input, so the 45-second per-request timeout is a

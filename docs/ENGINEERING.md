@@ -331,7 +331,7 @@ produce a quote that exists in a cited segment.
   lives in the running process's memory, and the host sleeps the app after twelve hours and
   restarts it on redeploy, so it resets on both. I watched this in production: after a reboot
   the counter read 399 of 400 rather than continuing. It is a guard against accidental
-  overuse, not an enforced limit — the provider refusing requests is the real backstop.
+  overuse, not a durable limit — the provider refusing requests is the real backstop.
 - **Latency varies about threefold on the same input.** See section E.
 - **Quote matching forgives punctuation style but not punctuation choice.** A model writing
   "the timing - not the recipe" where the transcript says "the timing, not the recipe" fails
