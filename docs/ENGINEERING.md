@@ -420,3 +420,67 @@ committed is an example file with a placeholder.
 - **Free-tier limits are not published.** Neither provider documents them on a public page;
   the figures in section A came from a signed-in console. They can change without notice,
   and my own caps would need revisiting if they did.
+
+## Next steps
+
+The three things I would do next, in the order I would do them. All three come from
+limitations I hit rather than features I imagined.
+
+### 1. Make the request limit real, with a shared store
+
+**Why first.** It is the only limitation that can cost someone money. The counters live in
+the running process's memory, so they reset whenever the host sleeps or restarts the app,
+and they would count separately if the platform ever ran more than one process. I watched a
+reboot reset the count from 399 to 400 in production. Everything else on this list is a
+quality improvement; this one is the difference between a documented guard and an actual
+limit.
+
+**What I would do.** Move the daily counter into a small external store — a free-tier
+key-value service, or a single row in a hosted database — keyed by the UTC date, read and
+incremented atomically. Keep the in-memory counter as a fast local check in front of it so
+the common case still costs nothing.
+
+**Expected impact.** The daily cap becomes enforceable rather than advisory, and survives
+restarts. It also makes the per-session limit meaningful, since a visitor could otherwise
+reset their own allowance by opening a new session. The cost is one more dependency and one
+more thing that can fail, so the store has to fail open — refusing to generate because a
+counter is unreachable would be worse than the problem it solves.
+
+### 2. Measure quote-matching failures, then decide whether to loosen the rule
+
+**Why second.** The quote check is what makes the output trustworthy, and I have no idea how
+often it rejects a legitimate item. I know it forgives punctuation style but not punctuation
+choice: a model writing a dash where the transcript has a comma loses that item. In the
+generations I have run, nothing was dropped for this reason, but three generations is not
+evidence.
+
+**What I would do.** Record, for every dropped item, the quote and the segment it cited, and
+whether a looser comparison would have accepted it — punctuation stripped entirely, say, or
+a word-sequence match that ignores all non-alphanumerics. Run that over fifty generations
+and look at the disagreements by hand. Only then decide whether to loosen, because the
+decision needs data rather than instinct.
+
+**Expected impact.** Either confidence that the strict rule costs nothing, or a measured
+case for relaxing it. Both are better than the current position, which is a guess with a
+plausible argument attached. The risk of loosening without measuring is accepting
+paraphrase, which would quietly undermine the one claim the app makes.
+
+### 3. Chunk long transcripts instead of refusing them
+
+**Why third.** It is the biggest product limitation but the least urgent, because the
+current cap of 150,000 characters covers around three hours of speech and almost no episode
+exceeds it. It matters because I never measured latency near that cap, so I do not actually
+know that a maximum-size transcript completes inside the 45-second timeout — the limit is
+set by arithmetic, not observation.
+
+**What I would do.** First measure it, which costs one request and would tell me whether
+there is a problem at all. If a full-size transcript does approach the timeout, split the
+transcript into overlapping windows, generate chapters and quiz items per window, then merge
+by segment order and deduplicate. The overview would need a second pass over the per-window
+summaries. Grounding stays unchanged, because segment ids remain global.
+
+**Expected impact.** Removes the input ceiling and makes latency predictable, since each
+window is a known size. The cost is real: several requests per episode instead of one, which
+interacts badly with the free-tier daily limit, and a merge step that can produce chapters
+that read oddly at window boundaries. That is why it is third — the benefit is narrow and
+the complexity is not.
