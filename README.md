@@ -84,6 +84,8 @@ $EDITOR .streamlit/secrets.toml      # replace your-key-here with your key, then
 ./.venv/bin/python -m streamlit run app.py
 ```
 
+Tested on Windows; the macOS/Linux commands are the standard equivalents.
+
 The app opens at <http://localhost:8501>. Without a key it still runs and the example
 episode still works; only generation is unavailable, and the app says so.
 
