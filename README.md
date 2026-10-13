@@ -176,9 +176,11 @@ docs/                   Research, engineering notes, debugging log
   fresh allowance. The process-wide 400-requests-a-day counter is the real bound, and it
   lives in the running process's memory, so it resets whenever the app restarts or wakes.
   Together they guard against accidental overuse; they are not an enforced limit.
-- **Latency near the 150,000-character limit is untested.** Measured generations took 5 to 9
-  seconds on transcripts up to 2,370 characters. I have no evidence about a maximum-size
-  transcript against the 45-second timeout.
+- **Latency depends more on provider load than on input size.** On 2026-10-13 two identical
+  291-word pastes took 44.8 s and 15.6 s, and a 147,987-character file took 38.1 s. All three
+  completed, but the slowest was a short input, so the 45-second per-request timeout is a
+  risk at any size. The figures are in
+  [docs/ENGINEERING.md, section E](docs/ENGINEERING.md#e-cost-and-maintenance).
 - **Quote checking can drop a good item.** It forgives differences in punctuation style and
   spacing but not a changed punctuation mark, so a model that writes a dash where the
   transcript has a comma will have that item dropped rather than shown.

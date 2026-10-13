@@ -332,7 +332,7 @@ produce a quote that exists in a cited segment.
   restarts it on redeploy, so it resets on both. I watched this in production: after a reboot
   the counter read 399 of 400 rather than continuing. It is a guard against accidental
   overuse, not an enforced limit — the provider refusing requests is the real backstop.
-- **Latency near the input limit is untested.** See section E.
+- **Latency varies about threefold on the same input.** See section E.
 - **Quote matching forgives punctuation style but not punctuation choice.** A model writing
   "the timing - not the recipe" where the transcript says "the timing, not the recipe" fails
   verification and the item is dropped. I would rather drop a good item than accept a bad
@@ -385,15 +385,27 @@ published prices, not observed billing.
 | 387 characters, a smoke test during setup | 5.3 s |
 | 1,657 characters / 280 words, plain text, on the deployed app | 5.2 s |
 | 2,370 characters / 325 spoken words, the example episode with cues | 8.8 s |
+| 291 words, plain text, 3 segments, first request after a reboot (2026-10-13) | 44.8 s |
+| 291 words, plain text, 3 segments, a later session (2026-10-13) | 15.6 s |
+| 147,987 characters, plain text, 249 segments (2026-10-13) | 38.1 s |
 
-Latency tracks output size and model variance more than input size — the 1,657-character
-run was marginally faster than the 387-character one.
+**The spread matters more than the size.** The same 291-word paste took 44.8 s in one session
+and 15.6 s in another on the same build, and the slower one was the first request after a
+reboot. The near-limit file, 249 segments against 3, came back in 38.1 s — faster than the
+slowest short run. At this scale latency follows provider load and output length, not how
+much transcript goes in.
 
-**Nothing near the 150,000-character limit was measured.** I chose not to spend the time or
-the request before the deadline, so I have no evidence about where a maximum-size transcript
-falls relative to the 45-second timeout. If it exceeded it, the right response is lowering
-the input limit rather than raising the timeout, because raising the timeout also doubles
-the worst case when a model is unavailable and the fallback is tried.
+**I kept the 150,000-character cap.** Lowering it would not remove the risk, because the
+slowest run was a short input. A call that does reach the 45-second timeout is treated as
+transient: the fallback model is tried once, and if that also times out the user is told the
+request took longer than 45 seconds and that a shorter transcript will be faster. Raising the
+timeout is the worse option, because it also doubles the worst case when a model is
+unavailable and the fallback is tried.
+
+The near-limit file was the example transcript's text repeated 83 times, so it measures size
+handling and latency, not output quality: 4 of 4 takeaways and 3 of 3 chapters were kept, and
+2 of 7 quiz questions were dropped as unverifiable. Its request count is not isolated, because
+a second run overlapped in another browser tab.
 
 ### Dependencies and configuration
 
