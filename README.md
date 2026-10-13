@@ -16,7 +16,7 @@ remembers that something was said and needs to find where.
 The app sleeps after 12 hours without traffic. If you get a sleep screen, click
 **"Yes, get this app back up!"** and give it about a minute.
 
-Demo video: _link to add_
+Demo video: https://drive.google.com/file/d/1oaqHNuqFGtQovVtEgqFXXG5d2dyzZEjb/view?usp=sharing
 
 ## How to use it in 30 seconds
 
