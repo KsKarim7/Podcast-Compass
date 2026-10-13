@@ -32,6 +32,24 @@ the provider refusing further requests, which the app reports as the daily limit
 reached. We say this rather than implying the cap is enforced, because a reviewer should
 be able to tell the difference between a guarantee and a safety net.
 
+## Deployment notes
+
+The app runs on Streamlit Community Cloud at
+<https://podcast-compass.streamlit.app>. Two things are worth knowing if you deploy or
+redeploy it.
+
+**Reboot after a deploy that changes anything inside `podcast_compass/`.** Community Cloud
+picks up a new `app.py` without necessarily reloading already-imported package modules, so
+the two can disagree. We hit this: `app.py` referenced a constant that existed only in the
+new version of `podcast_compass/messages.py`, and the live app raised
+`AttributeError: module messages has no attribute GROUNDING_REJECTED_BECAUSE` until it was
+rebooted from **Manage app**. A reboot reimports everything from the deployed commit. This
+cannot be reproduced locally, because `streamlit run` reimports on every restart.
+
+**The app sleeps after 12 hours without traffic.** Any visitor can wake it with the button
+on the sleep screen; the first load after that is slower. A reboot or a sleep also resets
+the daily request counter, as described above.
+
 ## Data use
 
 This demo runs on Gemini's free tier. Google's terms state that free-tier inputs are
