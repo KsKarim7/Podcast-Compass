@@ -98,9 +98,10 @@ episode still works; only generation is unavailable, and the app says so.
 ```
 
 300 tests, no network and no API key needed — the provider is replaced by a fake. Four are
-skipped by default: two need the pre-generated sample, and two make one real request with a
-deliberately invalid key to check the error handling against the live API. Run those with
-`RUN_LIVE_TESTS=1`; they spend no quota because the key is invalid by design.
+skipped on a normal run: two only apply when the pre-generated example is missing, which it
+is not, and two make one real request with a deliberately invalid key to check the error
+handling against the live API. Run those two with `RUN_LIVE_TESTS=1`; they spend no quota,
+because the key is invalid by design.
 
 `requirements.txt` holds the three runtime dependencies; `requirements-dev.txt` adds
 `pytest`.
