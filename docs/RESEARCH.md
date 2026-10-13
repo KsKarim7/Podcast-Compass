@@ -3,7 +3,7 @@
 Checked **2026-10-12**. Every figure links to its source; what we could not confirm on a
 provider-owned page or by calling the API ourselves is marked `[UNVERIFIED]`. Full tables, our API
 test log and the documentation contradictions we hit are in
-[ENGINEERING.md section A](ENGINEERING.md#a-technology-comparison-detail).
+[ENGINEERING.md section A](ENGINEERING.md#a-technology-comparison).
 
 ## 1. Who this is for
 
