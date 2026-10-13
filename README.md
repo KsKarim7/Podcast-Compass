@@ -99,11 +99,12 @@ episode still works; only generation is unavailable, and the app says so.
 ./.venv/bin/python -m pytest -q
 ```
 
-300 tests, no network and no API key needed — the provider is replaced by a fake. Four are
-skipped on a normal run: two only apply when the pre-generated example is missing, which it
-is not, and two make one real request with a deliberately invalid key to check the error
-handling against the live API. Run those two with `RUN_LIVE_TESTS=1`; they spend no quota,
-because the key is invalid by design.
+316 tests, of which 312 run and 4 are skipped. No network and no API key needed — the
+provider is replaced by a fake. The four skips, with the reasons pytest prints: two say
+"only applies before the sample is generated", which they do because the pre-generated
+example is committed; two say "set RUN_LIVE_TESTS=1 to run; makes one real network call with
+an invalid key". Run those two with `RUN_LIVE_TESTS=1`; they spend no quota, because the key
+is invalid by design.
 
 `requirements.txt` holds the three runtime dependencies; `requirements-dev.txt` adds
 `pytest`.
@@ -144,15 +145,20 @@ reviewers.** The app shows this notice before accepting any input. Do not paste
 confidential or personal material, and only use transcripts you have permission to
 process.
 
-Logs record the model used, the elapsed time, and the number of characters submitted. They
-never contain transcript text or any part of the key.
+The app writes two kinds of log line: warnings when a call fails or a repair retry is
+skipped, and information lines recording the model and elapsed time of a generation, a
+fall-back to the second model, a repair retry, and a result the grounding checks rejected.
+Nothing in the app configures logging, so the root logger keeps Python's default WARNING
+level and the information lines are never emitted — which is why the hosted log showed
+nothing after the server start line on 2026-10-13, although several generations had run.
+Only the warnings reach it. No log line is given transcript text or any part of the key.
 
 ## Project structure
 
 ```
 app.py                  Page layout and session state
 podcast_compass/        Parsing, segmentation, the model client, validation, export
-tests/                  300 tests, no network required
+tests/                  316 tests, no network required
 samples/                The example episode and its pre-generated result
 tools/                  Script to regenerate the example result
 docs/                   Research, engineering notes, debugging log
@@ -165,9 +171,11 @@ docs/                   Research, engineering notes, debugging log
 
 ## Known limitations
 
-- **The request counters reset when the app restarts.** They live in the running process's
-  memory, and the host restarts the app on redeploy and after it sleeps. They guard against
-  accidental overuse; they are not an enforced limit.
+- **The limits slow a visitor down rather than bounding them.** The app does not identify
+  visitors. The 10-generation limit is per browser session, so opening a new session starts a
+  fresh allowance. The process-wide 400-requests-a-day counter is the real bound, and it
+  lives in the running process's memory, so it resets whenever the app restarts or wakes.
+  Together they guard against accidental overuse; they are not an enforced limit.
 - **Latency near the 150,000-character limit is untested.** Measured generations took 5 to 9
   seconds on transcripts up to 2,370 characters. I have no evidence about a maximum-size
   transcript against the 45-second timeout.

@@ -325,11 +325,13 @@ produce a quote that exists in a cited segment.
 
 ### Limitations I know about
 
-- **The request counters reset when the app restarts.** They live in the running process's
-  memory, and the host sleeps the app after twelve hours and restarts it on redeploy. I
-  watched this in production: after a reboot the counter read 399 of 400 rather than
-  continuing. It is a guard against accidental overuse, not an enforced limit — the provider
-  refusing requests is the real backstop.
+- **The limits slow a visitor down rather than bounding them.** The app does not identify
+  visitors, so the 10-generation limit is per browser session and a new session starts a
+  fresh allowance. The process-wide counter of 400 requests a day is the real bound. It
+  lives in the running process's memory, and the host sleeps the app after twelve hours and
+  restarts it on redeploy, so it resets on both. I watched this in production: after a reboot
+  the counter read 399 of 400 rather than continuing. It is a guard against accidental
+  overuse, not an enforced limit — the provider refusing requests is the real backstop.
 - **Latency near the input limit is untested.** See section E.
 - **Quote matching forgives punctuation style but not punctuation choice.** A model writing
   "the timing - not the recipe" where the transcript says "the timing, not the recipe" fails
@@ -395,10 +397,10 @@ the worst case when a model is unavailable and the fallback is tried.
 
 ### Dependencies and configuration
 
-Three pinned runtime dependencies: `streamlit`, `google-genai`, `pydantic`. `pytest` is a
-development dependency and is not installed in production, because the host installs from
-`requirements.txt` and that file does not list it. Keeping the list short was deliberate:
-fewer libraries means fewer things I cannot explain.
+Three pinned runtime dependencies: `streamlit` 1.65.0, `google-genai` 2.29.0 and `pydantic`
+2.14.1. `pytest` is a development dependency and is not installed in production, because the
+host installs from `requirements.txt` and that file does not list it. Keeping the list short
+was deliberate: fewer libraries means fewer things I cannot explain.
 
 Configuration is one file, `config.py` — limits, model names, timeout, retry policy. The
 only secret is the API key, from Streamlit's secrets store in production and a git-ignored
@@ -408,9 +410,9 @@ committed is an example file with a placeholder.
 ### Maintenance risks
 
 - **Models get retired.** This happened mid-project: `gemini-2.5-flash` stopped being
-  available to new projects while I was choosing between models. Model names therefore live
-  in configuration, so a retirement is a one-line change plus a reboot, and a 404 from the
-  primary falls through to the second model automatically.
+  available to new projects while I was choosing between models. Model names therefore sit
+  in `config.py` rather than at the call site, so switching one is a one-line edit, a push
+  and a reboot. A 404 from the primary also falls through to the second model on its own.
 - **Redeploys need a reboot when package files change.** The host can pick up a new entry
   point while keeping an already-imported module in memory, which crashed the live app once.
   See [DEBUG_LOG.md](DEBUG_LOG.md) and the README.

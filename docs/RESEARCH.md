@@ -34,9 +34,11 @@ Cloud against Hugging Face Spaces for hosting.
 | Data use | Inputs ["used to improve our products"](https://ai.google.dev/gemini-api/terms); human review | [No retention by default](https://console.groq.com/docs/your-data); ZDR | – |
 | Paid /1M | [$0.75 / $3.75](https://ai.google.dev/gemini-api/docs/pricing) | [$0.15 / $0.60](https://console.groq.com/docs/model/openai/gpt-oss-120b) | [$0.05 / $0.40](https://developers.openai.com/api/docs/pricing) |
 
-Two findings decided it. A 30–40 minute episode is roughly 8K tokens (our estimate, to be replaced
-by a real count from the sample transcript), so Groq's 8K tokens/minute cannot take one in a single
-call. And `gemini-3.8-flash`, which has the context headroom, allows only 20 requests a day, shared
+Two findings decided it. A 30–40 minute episode is roughly 8K tokens — an estimate at four
+characters per token, the same assumption behind the per-episode figures in
+[ENGINEERING.md section E](ENGINEERING.md#e-cost-and-maintenance), not a count from the provider's
+tokeniser — so Groq's 8K tokens/minute cannot take one in a single call. And
+`gemini-3.8-flash`, which has the context headroom, allows only 20 requests a day, shared
 between our testing, the demo and every reviewer. The Flash Lite models have both.
 
 Hugging Face Spaces is not a free option: the
@@ -49,8 +51,9 @@ any visitor can wake it.
 **Maintenance.** Models get retired, and we hit it during this research: `gemini-2.5-flash` returned
 404 "no longer available to new users", and the
 [2.5 family](https://ai.google.dev/gemini-api/docs/models) is now limited to projects that already
-used it. So model names live in configuration rather than code, and the fallback model covers a
-retirement or an outage without a code change.
+used it. So model names sit in one module, `podcast_compass/config.py`, rather than at the call
+site: switching one is a one-line edit plus a push. The fallback model covers a retirement or an
+outage on its own.
 
 ## 3. Reliability
 
