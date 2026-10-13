@@ -1,12 +1,11 @@
-"""Every row of the error catalogue in docs/SPEC.md section 11.
+"""Every failure the app can report, one test each.
 
 One test per failure, each triggering it with a faked failure. No real API call is made
 anywhere in this file: provider failures are fake exceptions shaped like the ones
 google-genai 2.29.0 raises, and the app-level tests patch the SDK adapter.
 
-The point of keeping these together is that a reviewer can read the catalogue and this
-file side by side, and the table in the report is generated from real test names rather
-than claimed.
+Keeping them together means the set of things that can go wrong is readable in one place,
+and every message in podcast_compass/messages.py is asserted by name.
 """
 
 from datetime import datetime, timezone

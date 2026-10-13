@@ -1,8 +1,7 @@
 """Every message a user can be shown when something goes wrong.
 
-One module, so the catalogue in docs/SPEC.md section 11 can be checked against the code
-rather than trusted, and so the same failure cannot acquire two different wordings in two
-places.
+One module, so every failure has exactly one wording and tests can assert the exact text
+rather than a substring. tests/test_errors.py has a test per message.
 
 Rules these all follow:
 

@@ -143,23 +143,6 @@ because 400 otherwise means "our bug". My client catches broadly at the single c
 and branches on `status_code`, and an opt-in test confirms the invalid-key path against the
 real API using a deliberately invalid key, so it costs no quota.
 
-## Latency measurements
+## Latency
 
-Four generations, timed end to end around the API call:
-
-| Input | Measured |
-|---|---|
-| 387 characters (a smoke test during setup) | 5.3 s |
-| 1,657 characters / 280 words (plain text, on the deployed app) | 5.2 s |
-| 2,370 characters / 325 spoken words (the sample episode, with subtitle cues) | 8.8 s |
-
-Latency tracks output size and model variance more than input size: the 1,657-character run
-was marginally faster than the 387-character one, and the longest input was not
-proportionally slower.
-
-**Not measured: anything near the 150,000-character input limit.** I chose not to spend the
-time and the request on it close to the deadline. The timeout is set to 45 seconds, and I
-have no evidence about where a maximum-size transcript falls relative to that. If it turns
-out to exceed it, the right response is to lower the input limit rather than raise the
-timeout, because raising the timeout also doubles the worst case when a model is
-unavailable and the fallback is tried.
+The measurements taken, and what was not measured, are in [ENGINEERING.md section E](ENGINEERING.md#e-cost-and-maintenance).
