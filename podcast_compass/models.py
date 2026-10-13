@@ -46,7 +46,9 @@ class QuizQuestion(BaseModel):
 
 class EpisodeResult(BaseModel):
     overview: Overview
-    chapters: list[Chapter] = Field(description="4-8 chapters in transcript order")
+    chapters: list[Chapter] = Field(
+        description="Chapters in transcript order; the task states how many"
+    )
     quiz: list[QuizQuestion] = Field(description="5-8 questions")
 
 

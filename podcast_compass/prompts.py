@@ -20,6 +20,7 @@ SYSTEM_INSTRUCTION = (
 )
 
 MAX_CHAPTERS = 8
+MIN_CHAPTERS_LONG = 4
 
 
 def chapter_range(segment_count: int) -> tuple[int, int]:
@@ -29,9 +30,14 @@ def chapter_range(segment_count: int) -> tuple[int, int]:
     more chapters than it has segments. Asking for more than that guarantees
     unverifiable chapters, which is a failure we would then have to explain to the user
     rather than avoid.
+
+    Once a transcript has room for all eight, we ask for at least four, so a long episode
+    does not come back as two broad chapters.
     """
     most = min(MAX_CHAPTERS, max(1, segment_count))
     fewest = min(2, most)
+    if segment_count >= MAX_CHAPTERS:
+        fewest = MIN_CHAPTERS_LONG
     return fewest, most
 
 

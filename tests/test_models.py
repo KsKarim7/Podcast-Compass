@@ -78,3 +78,17 @@ class TestSchemaIsFlatEnough:
         assert set(SECTION_MODELS) == {"overview", "chapters", "quiz"}
         for model in SECTION_MODELS.values():
             assert model.model_json_schema()["type"] == "object"
+
+
+class TestTheSchemaStatesNoChapterCount:
+    """How many chapters to ask for depends on the segment count, which the prompt
+    carries. A static schema cannot know it, and a number here would contradict the task.
+    """
+
+    def test_no_chapters_description_contains_a_digit(self):
+        for model in (EpisodeResult, *SECTION_MODELS.values()):
+            chapters = model.model_json_schema()["properties"].get("chapters")
+            if chapters is None:
+                continue
+            description = chapters.get("description", "")
+            assert not any(char.isdigit() for char in description), model.__name__

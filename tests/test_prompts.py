@@ -1,6 +1,7 @@
 import pytest
 
 from podcast_compass import config, prompts
+from podcast_compass.grounding import required_chapters
 from podcast_compass.prompts import (
     chapter_range,
     build_generation_prompt,
@@ -93,9 +94,25 @@ class TestChapterRangeFollowsTheInput:
         assert chapter_range(3) == (2, 3)
         assert "2-3 chapters" in build_generation_prompt("S001 hello", 3)
 
+    def test_seven_segments_keep_the_floor_at_two(self):
+        # One segment short of room for all eight, so the floor has not moved yet.
+        assert chapter_range(7) == (2, 7)
+        assert "2-7 chapters" in build_generation_prompt("S001 hello", 7)
+
+    def test_eight_segments_raise_the_floor_to_four(self):
+        assert chapter_range(8) == (4, 8)
+        assert "4-8 chapters" in build_generation_prompt("S001 hello", 8)
+
     def test_long_transcripts_are_capped(self):
-        assert chapter_range(200) == (2, 8)
-        assert "2-8 chapters" in build_generation_prompt("S001 hello", 200)
+        assert chapter_range(200) == (4, 8)
+        assert "4-8 chapters" in build_generation_prompt("S001 hello", 200)
+
+    def test_the_range_never_asks_for_more_than_the_input_can_verify(self):
+        # The prompt must never ask for fewer chapters than grounding will demand, nor
+        # for more than the transcript has segments to place them at.
+        for n in range(1, 301):
+            fewest, most = chapter_range(n)
+            assert required_chapters(n) <= fewest <= most <= n, n
 
     def test_the_ordering_rule_is_stated(self):
         assert "later segment than the one before" in build_generation_prompt("S001 x", 5)
