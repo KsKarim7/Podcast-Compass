@@ -134,7 +134,7 @@ episode still works; only generation is unavailable, and the app says so.
 ./.venv/bin/python -m pytest -q
 ```
 
-401 tests, of which 396 run and 5 are skipped. No network and no API key needed — the model
+402 tests, of which 397 run and 5 are skipped. No network and no API key needed — the model
 and the embeddings are replaced by fakes. The five skips, with the reasons pytest prints:
 two say "only applies before the sample is generated", which they do because the
 pre-generated example is committed; three say "set RUN_LIVE_TESTS=1 to run; makes one real
@@ -244,7 +244,7 @@ Only the warnings reach it. No log line is given transcript text or any part of 
 app.py                  Page layout and session state
 mcp_server.py           The same features as MCP tools, over stdio
 podcast_compass/        Parsing, segmentation, the model client, retrieval, validation, export
-tests/                  401 tests, no network required
+tests/                  402 tests, no network required
 Dockerfile              The image; docker-compose.yml runs it locally
 k8s/, Makefile          kind cluster, Deployment and Service
 deploy/                 The script the deploy job runs on EC2
