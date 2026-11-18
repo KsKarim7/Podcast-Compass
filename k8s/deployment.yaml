@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: podcast-compass
+  labels:
+    app: podcast-compass
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: podcast-compass
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Start one new pod, wait for it to be ready, then stop one old pod. The app never
+      # drops below two ready pods during an update.
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: podcast-compass
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: app
+          # `make deploy` replaces this with the tag it just built and loaded into kind.
+          image: podcast-compass:local
+          # The image is loaded into the cluster by kind, not pulled from a registry.
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8501
+          env:
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: gemini
+                  key: GEMINI_API_KEY
+                  # Without the Secret the pod still starts; only generation is off,
+                  # exactly as when the app runs without a key anywhere else.
+                  optional: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          # Readiness decides whether the Service sends this pod traffic. A pod that is
+          # still starting, or briefly unhealthy, is taken out of rotation, not restarted.
+          readinessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+          # Liveness decides whether the container is restarted. It waits longer and
+          # tolerates more, so a slow start is not mistaken for a hung process.
+          livenessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false

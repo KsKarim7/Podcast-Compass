@@ -1,0 +1,13 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: podcast-compass
+nodes:
+  - role: control-plane
+    # kind runs the cluster inside a Docker container, so a NodePort is not reachable from
+    # your machine on its own. This maps the Service's node port to localhost:8080, and
+    # traffic arriving there goes through the Service, the same way it would in a real
+    # cluster. (kubectl port-forward would bypass the Service and pin you to one pod.)
+    extraPortMappings:
+      - containerPort: 30080
+        hostPort: 8080
+        protocol: TCP
