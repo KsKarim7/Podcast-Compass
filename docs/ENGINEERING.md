@@ -259,15 +259,18 @@ seconds with no key and no browser.
 | `messages.py` | Every message a user can be shown when something goes wrong |
 | `parsing.py` | Decode, detect format, extract cues, validate length |
 | `segments.py` | Build numbered segments from cues or text; format timestamps |
-| `models.py` | The result schema, which is also the JSON Schema sent to the model |
-| `prompts.py` | System instruction and the two prompt templates |
-| `llm.py` | The only file that talks to the provider: call, classify, fall back, repair |
-| `grounding.py` | Verify citations, drop or flag failures, attach timestamps |
+| `models.py` | The result and answer schemas, which are also the JSON Schemas sent to the model |
+| `prompts.py` | System instructions and the prompt templates: generation, revision, answer, quiz |
+| `llm.py` | The only file that talks to the provider: generation and embeddings; classify, fall back, repair |
+| `grounding.py` | Verify citations for results, quizzes and answers; drop or flag failures; attach timestamps |
+| `rag.py` | Embed segments, build the FAISS index, search it |
+| `ask.py` | Ask the podcast: retrieve, answer from the retrieved segments, verify; shared by the app and the MCP server |
 | `quota.py` | Per-session and process-wide request counters |
 | `render.py` | Display strings, with no Streamlit import |
 | `export.py` | Markdown and JSON payloads for copy and download |
 | `sample.py` | Load the committed example episode and its pre-generated result |
 | `text.py` | A pluralisation helper, shared so counts read correctly |
+| `mcp_server.py` | The MCP server at the repository root: four tools over stdio, using the package |
 
 ## C. Debugging example
 
@@ -409,14 +412,16 @@ a second run overlapped in another browser tab.
 
 ### Dependencies and configuration
 
-Three pinned runtime dependencies: `streamlit` 1.65.0, `google-genai` 2.29.0 and `pydantic`
-2.14.1. `pytest` is a development dependency and is not installed in production, because the
-host installs from `requirements.txt` and that file does not list it. Keeping the list short
-was deliberate: fewer libraries means fewer things I cannot explain.
+Runtime dependencies: `streamlit` 1.65.0, `google-genai` 2.29.0 and `pydantic` 2.14.1, plus
+`faiss-cpu` 1.15.1 and `numpy` for "Ask the podcast". The MCP SDK (`mcp` 2.3.0) is in its own
+`requirements-mcp.txt`, because only `mcp_server.py` uses it and neither the Docker image
+nor Streamlit Cloud needs it. `pytest` and `ruff` are development dependencies. Keeping the
+list short was deliberate: fewer libraries means fewer things I cannot explain.
 
-Configuration is one file, `config.py` — limits, model names, timeout, retry policy. The
-only secret is the API key, from Streamlit's secrets store in production and a git-ignored
-file locally. It is never logged, never shown in the interface, never committed; what is
+Configuration is one file, `config.py` — limits, model names, timeout, retry policy,
+embedding settings. The only secret is the API key, read from the `GEMINI_API_KEY`
+environment variable (Docker, Kubernetes, EC2, the MCP server) or from Streamlit's secrets
+store (Streamlit Cloud and a git-ignored file locally). It is never logged, never shown in the interface, never committed; what is
 committed is an example file with a placeholder.
 
 ### Maintenance risks
