@@ -176,7 +176,14 @@ class TestExampleEpisode:
 
     def test_renders_every_section(self, loaded):
         headings = [s.value for s in loaded.subheader]
-        assert headings == ["Overview", "Chapters", "Quiz", "Revise one section", "Copy or download"]
+        assert headings == [
+            "Overview",
+            "Chapters",
+            "Quiz",
+            "Ask the podcast",
+            "Revise one section",
+            "Copy or download",
+        ]
 
     def test_detection_line_reports_webvtt_and_cues(self, loaded):
         assert "WebVTT" in captions(loaded)
