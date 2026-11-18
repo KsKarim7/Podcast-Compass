@@ -244,7 +244,8 @@ class TestSdkStaysOutOfTheTests:
 
     def test_no_sdk_import_outside_the_adapter(self):
         source = inspect.getsource(llm)
-        before_adapter = source[: source.index("def build_sdk_call")]
+        # The adapter starts at _client, which build_sdk_call and build_sdk_embedder share.
+        before_adapter = source[: source.index("def _client")]
         imports = [
             line.strip()
             for line in before_adapter.splitlines()
