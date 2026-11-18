@@ -39,6 +39,7 @@ def never_reach_the_provider(monkeypatch):
         )
 
     monkeypatch.setattr("podcast_compass.llm.build_sdk_call", refuse)
+    monkeypatch.setattr("podcast_compass.llm.build_sdk_embedder", refuse)
 
 
 def fresh(key: str = "") -> AppTest:
@@ -295,6 +296,12 @@ class TestTheGuardItself:
 
         with pytest.raises(AssertionError, match="never call the provider"):
             llm.build_sdk_call("dummy")
+
+    def test_build_sdk_embedder_is_patched_in_these_tests(self, app):
+        from podcast_compass import llm
+
+        with pytest.raises(AssertionError, match="never call the provider"):
+            llm.build_sdk_embedder("dummy")
 
     def test_the_key_is_blanked_regardless_of_a_local_secrets_file(self, app):
         assert app.secrets["GEMINI_API_KEY"] == ""

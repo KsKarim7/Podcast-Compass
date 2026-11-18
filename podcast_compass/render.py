@@ -5,7 +5,7 @@ Nothing here imports streamlit. app.py decides which widget shows each string.
 
 from __future__ import annotations
 
-from .grounding import VerifiedChapter
+from .grounding import VerifiedChapter, VerifiedCitation
 from . import messages
 from .parsing import ParsedTranscript
 from .segments import format_timestamp
@@ -55,3 +55,18 @@ def chapter_heading(item: VerifiedChapter) -> str:
 
 def evidence_caption(segment_id: str, quote: str) -> str:
     return f'{segment_id}: "{quote}"'
+
+
+def citation_caption(citation: VerifiedCitation) -> str:
+    """Like evidence_caption, with the time read from the cues when the source had them."""
+    caption = evidence_caption(citation.segment_id, citation.quote)
+    if citation.start_seconds is None:
+        return caption
+    return f"[{format_timestamp(citation.start_seconds)}] {caption}"
+
+
+def dropped_citations_note(count: int) -> str:
+    return (
+        f"{plural(count, 'citation')} left out because the quote could not be found in "
+        "the part of the transcript it cited."
+    )

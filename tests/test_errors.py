@@ -179,6 +179,7 @@ def never_reach_the_provider(monkeypatch):
         raise AssertionError("a catalogue test must never call the provider")
 
     monkeypatch.setattr("podcast_compass.llm.build_sdk_call", refuse)
+    monkeypatch.setattr("podcast_compass.llm.build_sdk_embedder", refuse)
 
 
 def fresh_app(key: str = "") -> AppTest:
