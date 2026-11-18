@@ -1,5 +1,7 @@
 # Podcast Compass
 
+[![CI](https://github.com/KsKarim7/Podcast-Compass/actions/workflows/ci.yml/badge.svg)](https://github.com/KsKarim7/Podcast-Compass/actions/workflows/ci.yml)
+
 Podcast Compass turns a podcast transcript into something you can study from: a summary
 with the main themes, a set of key takeaways, navigable chapters, and a short quiz with
 answers. The thing it tries to do better than a plain summariser is let you check it —
