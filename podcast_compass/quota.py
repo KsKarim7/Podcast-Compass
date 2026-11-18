@@ -17,7 +17,7 @@ Nothing here imports streamlit. The clock is injectable so the tests do not slee
 from __future__ import annotations
 
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Callable
 

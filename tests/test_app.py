@@ -298,3 +298,21 @@ class TestTheGuardItself:
 
     def test_the_key_is_blanked_regardless_of_a_local_secrets_file(self, app):
         assert app.secrets["GEMINI_API_KEY"] == ""
+
+
+class TestKeyFromTheEnvironment:
+    """Docker, Kubernetes and EC2 pass the key as an environment variable."""
+
+    def test_an_environment_key_is_used_when_secrets_are_blank(self, monkeypatch):
+        monkeypatch.setenv("GEMINI_API_KEY", "env-key-never-used")
+        at = fresh()
+        at.run()
+        assert messages.MISSING_KEY not in captions(at)
+
+    def test_no_key_anywhere_still_reports_it(self, app):
+        assert messages.MISSING_KEY in captions(app)
+
+    def test_the_suite_never_inherits_a_shell_key(self):
+        import os
+
+        assert "GEMINI_API_KEY" not in os.environ

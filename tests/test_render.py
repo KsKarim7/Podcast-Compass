@@ -1,6 +1,6 @@
 import pytest
 
-from podcast_compass import export, render, sample
+from podcast_compass import render, sample
 from podcast_compass.grounding import VerifiedChapter, validate
 from podcast_compass.models import Chapter, Evidence
 from podcast_compass.parsing import parse_transcript

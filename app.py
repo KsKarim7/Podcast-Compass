@@ -7,6 +7,7 @@ live in the podcast_compass package so they can be tested without a browser or a
 from __future__ import annotations
 
 import logging
+import os
 import time
 
 import streamlit as st
@@ -92,7 +93,14 @@ def call_with_quota(run):
 
 
 def api_key() -> str | None:
-    """Streamlit raises if no secrets file exists at all, so this stays defensive."""
+    """The environment first, for Docker, Kubernetes and EC2; then Streamlit's secrets,
+    which is how Streamlit Community Cloud supplies it.
+
+    Streamlit raises if no secrets file exists at all, so that lookup stays defensive.
+    """
+    key = os.environ.get("GEMINI_API_KEY")
+    if key:
+        return key
     try:
         key = st.secrets.get("GEMINI_API_KEY")
     except Exception:
