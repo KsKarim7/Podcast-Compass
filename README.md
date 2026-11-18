@@ -260,6 +260,7 @@ docs/                   Research, engineering notes, debugging log
 - [docs/DEBUG_LOG.md](docs/DEBUG_LOG.md) — the problems I hit and what I did about them
 - [docs/AWS_SETUP.md](docs/AWS_SETUP.md) — the AWS deployment: setup, cost, teardown
 - [docs/MCP.md](docs/MCP.md) — the MCP server: tools, limits, errors, client setup
+- [docs/INTERVIEW_NOTES.md](docs/INTERVIEW_NOTES.md) — each technology, where it is used, why, and likely questions
 
 ## Known limitations
 
