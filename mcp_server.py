@@ -25,7 +25,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel, Field
 
-from podcast_compass import ask, config, prompts, quota, rag
+from podcast_compass import ask, config, messages, prompts, quota, rag
 from podcast_compass.grounding import VerifiedCitation, verify_quiz
 from podcast_compass.llm import (
     EmbedCall,
@@ -169,6 +169,10 @@ def create_server(
         except LlmError as exc:
             # As in the app: on a failure the reservation is kept, so the count runs high.
             raise _provider_error(exc) from exc
+        except ValueError as exc:
+            # Embeddings that cannot be indexed, such as empty vectors.
+            logger.warning("could not index or search the embeddings", exc_info=True)
+            raise ToolError(f"provider_error: {messages.UNKNOWN}") from exc
         daily.settle(worst, spent)
         return value
 

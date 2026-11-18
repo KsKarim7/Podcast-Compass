@@ -351,6 +351,13 @@ def run_ask(question: str) -> None:
         quota.record_action(session_usage(), monotonic=time.monotonic())
         st.session_state["ask_error"] = exc.user_message
         return
+    except ValueError:
+        # Embeddings that cannot be indexed, such as empty vectors. Not expected from the
+        # provider, but a message is better than a stack trace.
+        logger.warning("could not index or search the embeddings", exc_info=True)
+        quota.record_action(session_usage(), monotonic=time.monotonic())
+        st.session_state["ask_error"] = messages.UNKNOWN
+        return
 
     counter.settle(worst, outcome.requests)
     quota.record_action(session_usage(), monotonic=time.monotonic())

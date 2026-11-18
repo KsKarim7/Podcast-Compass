@@ -176,6 +176,17 @@ class TestErrors:
         )
         assert "provider_error" in message and messages.SEARCH_UNAVAILABLE in message
 
+    def test_unusable_embeddings_are_a_provider_error_not_a_crash(self, with_key):
+        def empty_vectors(*, texts, task_type):
+            return [[] for _ in texts]
+
+        server, _, _ = faked(answer("x"), embedder=empty_vectors)
+        transcript_id = sample_id(server)
+        message = error_text(
+            call(server, "search_transcript", {"transcript_id": transcript_id, "query": "honey"})
+        )
+        assert "provider_error" in message
+
     def test_the_daily_counter_stops_requests(self, with_key):
         server, _, embedder = faked(answer("x"), counter=quota.DailyCounter(limit=1))
         transcript_id = sample_id(server)
