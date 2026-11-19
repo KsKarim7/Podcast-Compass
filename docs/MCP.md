@@ -64,20 +64,35 @@ without it.
 
 The Inspector is a browser UI for calling a server's tools by hand. It needs Node.js.
 
+The Inspector does not pass your shell's environment on to the server it starts, so the
+key goes in with `-e`. Loading it from `.env` first keeps it out of your shell history.
+
 ```bash
-# macOS / Linux
-GEMINI_API_KEY=your-key npx @modelcontextprotocol/inspector python mcp_server.py
+# macOS, Linux or WSL
+set -a; source .env; set +a
+npx @modelcontextprotocol/inspector -e GEMINI_API_KEY="$GEMINI_API_KEY" \
+  .venv/bin/python mcp_server.py
 ```
 
 ```powershell
-# Windows PowerShell
-$env:GEMINI_API_KEY = "your-key"
-npx @modelcontextprotocol/inspector .\.venv\Scripts\python.exe mcp_server.py
+# Windows PowerShell, with the key already in $env:GEMINI_API_KEY
+npx @modelcontextprotocol/inspector -e GEMINI_API_KEY=$env:GEMINI_API_KEY `
+  .\.venv\Scripts\python.exe mcp_server.py
 ```
 
-It prints a local URL. Open it, press **Connect**, open **Tools**, run `load_transcript` with
-the contents of `samples/sample_episode.vtt`, then use the returned `transcript_id` with the
-other tools.
+Without the key, `load_transcript` still works and the other tools return a
+`not_configured` error.
+
+It prints a local URL. Open it, press **Connect**, open **Tools**, and run the tools.
+For `load_transcript`, switch on **Edit as JSON** and pass the file as a JSON string,
+because the plain text box joins lines together and a subtitle file needs its line
+breaks. This prints the arguments for the example episode:
+
+```bash
+python -c "import json; print(json.dumps({'text': open('samples/sample_episode.vtt', encoding='utf-8').read()}))"
+```
+
+Then use the returned `transcript_id` with the other tools.
 
 ### Claude Desktop
 
