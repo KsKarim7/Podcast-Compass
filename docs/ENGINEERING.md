@@ -47,7 +47,7 @@ podcast transcript in one request, and runs on a free tier with no billing accou
 | Typical latency | Not published; measured figures in section E | [~500 tokens/sec](https://console.groq.com/docs/model/openai/gpt-oss-120b) throughput; end-to-end latency not published | Not researched |
 | Python SDK | `google-genai`, [2.3.0 or later](https://ai.google.dev/gemini-api/docs/interactions) for the Interactions API | [`pip install groq`](https://console.groq.com/docs/quickstart), key from `GROQ_API_KEY` | `openai` |
 | Free-tier data use | Google "uses the content you submit … to provide, improve, and develop" its products, "human reviewers may read, annotate, and process your API input and output", and the terms say **"Do not submit sensitive, confidential, or personal information to the Unpaid Services"** ([terms](https://ai.google.dev/gemini-api/terms)). The pricing page's free plan card reads "Content used to improve our products" | "By default, Groq does not retain customer data for inference requests"; reliability/abuse logs kept "up to 30 days" with an opt-out, and Zero Data Retention is available to all customers ([data page](https://console.groq.com/docs/your-data)). That page makes no statement either way about training on customer data `[UNVERIFIED]`. The general [website privacy policy](https://groq.com/privacy-policy) does not mention model training, but does claim a legitimate interest in using information to "improve, and develop the Services" | Not applicable |
-| Cost beyond free tier | [$0.75 / $3.75 per 1M in/out](https://ai.google.dev/gemini-api/docs/pricing) through 2026-12-31, then $1.50 / $7.50 from 2027-01-01 | [$0.15 / $0.60 per 1M in/out](https://console.groq.com/docs/model/openai/gpt-oss-120b), cached input $0.075 | [gpt-5-nano $0.05 / $0.40; gpt-5-mini $0.25 / $2.00](https://developers.openai.com/api/docs/pricing) |
+| Cost beyond free tier | `gemini-3.8-flash`: [$0.75 / $3.75 per 1M in/out](https://ai.google.dev/gemini-api/docs/pricing) through 2026-12-31, then $1.50 / $7.50 from 2027-01-01 | [$0.15 / $0.60 per 1M in/out](https://console.groq.com/docs/model/openai/gpt-oss-120b), cached input $0.075 | [gpt-5-nano $0.05 / $0.40; gpt-5-mini $0.25 / $2.00](https://developers.openai.com/api/docs/pricing) |
 | Known issues | The Gemini 2.5 family is [limited to projects that already used it](https://ai.google.dev/gemini-api/docs/models); new projects are pointed at 3.5 Flash-Lite or 3.8 Flash. `minimal` thinking level errors on 3.8 Flash. Free-tier models can return a transient 503 under load (A.4). Google now recommends the Interactions API for all new projects (A.3) | Structured-output strict mode covers only a few models, and the rate-limit documentation is internally inconsistent (A.2) | No free tier |
 
 ### A.2 Free-tier rate limits
@@ -76,8 +76,9 @@ single call — they would force me to chunk the transcript, which breaks the on
 makes cross-episode summaries harder. `gemini-3.8-flash` has the token headroom but only 20 requests
 per day, shared between my own testing, the demo recording and every reviewer who opens the live
 URL; that is not enough to survive assessment. The two Flash Lite models have both the token
-headroom and 500 RPD. The ~8K token estimate is my own figure and I will replace it with a real
-token count from the sample transcript.
+headroom and 500 RPD. The ~8K token estimate is my own figure for a long episode. Section E
+measures the example episode at about 2,560 tokens, using the same estimate of 4 characters
+per token; neither figure is a token count reported by the provider.
 
 Being listed in the console does not prove a model is callable: the console showed
 `gemini-2.5-flash` with limits, but it returns 404 for new accounts (A.4).
@@ -294,8 +295,9 @@ question is dropped; a failing chapter is kept but marked unverified and shown w
 timestamp, because removing it would leave a hole in the navigation. The interface reports
 real counts — "kept 4 of 5 takeaways" — rather than hiding what was removed.
 
-Timestamps cannot be wrong, because the model never produces one: chapters cite a segment
-and my code reads that segment's start time from the parsed cues. There is no time field in
+The model cannot invent a timestamp, because it never produces one: chapters cite a segment
+and my code reads that segment's start time from the parsed cues. A timestamp is therefore
+only as accurate as the subtitle file it came from. There is no time field in
 the schema. The quote match is deliberately not fuzzy — edit distance would start accepting
 paraphrase, which is what the check exists to catch.
 
@@ -488,9 +490,10 @@ paraphrase, which would quietly undermine the one claim the app makes.
 
 **Why third.** It is the biggest product limitation but the least urgent, because the
 current cap of 150,000 characters covers around three hours of speech and almost no episode
-exceeds it. It matters because I never measured latency near that cap, so I do not actually
-know that a maximum-size transcript completes inside the 45-second timeout — the limit is
-set by arithmetic, not observation.
+exceeds it. It matters because I have one measurement near that cap: 147,987 characters in
+38.1 s (section E), inside the 45-second timeout but not by much, and that file is the
+example transcript repeated. One run of repeated text does not show that every
+maximum-size transcript finishes in time.
 
 **What I would do.** First measure it, which costs one request and would tell me whether
 there is a problem at all. If a full-size transcript does approach the timeout, split the

@@ -32,7 +32,7 @@ Cloud against Hugging Face Spaces for hosting.
 | Context | [1M tokens](https://ai.google.dev/gemini-api/docs/generate-content/latest-model) | [131,072](https://console.groq.com/docs/model/openai/gpt-oss-120b) | – |
 | Binding free limit | 500 requests/day (Flash Lite); 20/day (`gemini-3.8-flash`) | 8K tokens/minute | [none free](https://developers.openai.com/api/docs/pricing) |
 | Data use | Inputs ["used to improve our products"](https://ai.google.dev/gemini-api/terms); human review | [No retention by default](https://console.groq.com/docs/your-data); ZDR | – |
-| Paid /1M | [$0.75 / $3.75](https://ai.google.dev/gemini-api/docs/pricing) | [$0.15 / $0.60](https://console.groq.com/docs/model/openai/gpt-oss-120b) | [$0.05 / $0.40](https://developers.openai.com/api/docs/pricing) |
+| Paid /1M | `gemini-3.8-flash` [$0.75 / $3.75](https://ai.google.dev/gemini-api/docs/pricing) | [$0.15 / $0.60](https://console.groq.com/docs/model/openai/gpt-oss-120b) | [$0.05 / $0.40](https://developers.openai.com/api/docs/pricing) |
 
 Two findings decided it. A 30–40 minute episode is roughly 8K tokens — an estimate at four
 characters per token, the same assumption behind the per-episode figures in
