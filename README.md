@@ -183,13 +183,14 @@ Desktop configuration are in [docs/MCP.md](docs/MCP.md).
 
 ## Deploying
 
-There are two deployments, both from `main`.
+The live app runs on Streamlit Community Cloud.
 
-**AWS.** Every push to `main` that passes CI is built into an image, pushed to Amazon ECR
-and started on an EC2 instance through SSM Run Command, then checked through its public
-health endpoint. GitHub signs in to AWS through OIDC, so no AWS keys are stored anywhere.
-The one-time setup, the cost to expect and the teardown are in
-[docs/AWS_SETUP.md](docs/AWS_SETUP.md).
+**AWS (written, not set up).** The CI workflow also has a `deploy` job: on a push to `main`
+it would build the image, push it to Amazon ECR, start it on an EC2 instance through SSM Run
+Command and check its public health endpoint, signing in to AWS through GitHub OIDC rather
+than stored keys. I have not created the AWS side, so the job is skipped: it only runs once
+the `AWS_ROLE_ARN` repository variable is set. It has therefore never run. The one-time
+setup, the cost to expect and the teardown are in [docs/AWS_SETUP.md](docs/AWS_SETUP.md).
 
 **Streamlit Community Cloud.** From <https://share.streamlit.io>, create an app pointing
 at this repository, branch `main`, file path `app.py`. Under **Advanced settings**,
@@ -247,8 +248,8 @@ podcast_compass/        Parsing, segmentation, the model client, retrieval, vali
 tests/                  402 tests, no network required
 Dockerfile              The image; docker-compose.yml runs it locally
 k8s/, Makefile          kind cluster, Deployment and Service
-deploy/                 The script the deploy job runs on EC2
-.github/workflows/      CI and the AWS deploy
+deploy/                 The script the (unused) deploy job would run on EC2
+.github/workflows/      CI, plus the AWS deploy job, skipped until AWS is set up
 samples/                The example episode and its pre-generated result
 tools/                  Script to regenerate the example result
 docs/                   Research, engineering notes, debugging log
@@ -258,7 +259,7 @@ docs/                   Research, engineering notes, debugging log
 - [docs/ENGINEERING.md](docs/ENGINEERING.md) — architecture, reliability, cost and
   maintenance
 - [docs/DEBUG_LOG.md](docs/DEBUG_LOG.md) — the problems I hit and what I did about them
-- [docs/AWS_SETUP.md](docs/AWS_SETUP.md) — the AWS deployment: setup, cost, teardown
+- [docs/AWS_SETUP.md](docs/AWS_SETUP.md) — how to set up the AWS deployment, its cost and teardown (not set up yet)
 - [docs/MCP.md](docs/MCP.md) — the MCP server: tools, limits, errors, client setup
 - [docs/INTERVIEW_NOTES.md](docs/INTERVIEW_NOTES.md) — each technology, where it is used, why, and likely questions
 
@@ -274,8 +275,8 @@ docs/                   Research, engineering notes, debugging log
   completed, but the slowest was a short input, so the 45-second per-request timeout is a
   risk at any size. The figures are in
   [docs/ENGINEERING.md, section E](docs/ENGINEERING.md#e-cost-and-maintenance).
-- **Each running copy counts requests on its own.** Streamlit Cloud, the EC2 container and
-  each Kubernetes pod have separate counters, so give each deployment its own Gemini key.
+- **Each running copy counts requests on its own.** Streamlit Cloud, a Docker container
+  and each Kubernetes pod have separate counters, so give each deployment its own Gemini key.
 - **A Kubernetes pod holds its visitors' sessions.** Deleting or replacing a pod ends the
   sessions on it, and in kind every browser on one machine is pinned to the same pod.
 - **An answer can outlive one of its citations.** If an answer cites two quotes and only one

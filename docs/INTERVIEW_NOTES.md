@@ -66,10 +66,16 @@ container must answer `/_stcore/health` within 60 seconds.
 5. *How is the build fast?* pip downloads are cached by `setup-python` keyed on the
    requirements files, and Docker layers are cached in GitHub's cache (`type=gha`).
 
-## CD to AWS
+## CD to AWS (written, not run)
 
 **What it is.** Continuous deployment: a push to `main` that passes CI goes live without
 manual steps.
+
+**Honest status.** The workflow job, the deploy script and the setup guide are written, but
+I did not create the AWS account, so the job is skipped (it needs the `AWS_ROLE_ARN`
+repository variable) and has never run. If asked, say exactly that: I designed and wrote
+it, validated the YAML and the script's syntax, and stopped before creating cloud
+resources. Do not describe a deploy you have not seen.
 
 **Where.** The `deploy` job in `.github/workflows/ci.yml`, `deploy/ec2-deploy.sh`,
 `docs/AWS_SETUP.md`.
@@ -103,9 +109,9 @@ manual steps.
    a `trap` deletes the file when the script exits.
 4. *Why no SSH?* An open port 22 is an attack surface and needs key management. SSM gives
    remote command execution with IAM permissions and an audit trail instead.
-5. *How do you know the deploy worked?* The job waits for the SSM command to report
+5. *How would you know a deploy worked?* The job waits for the SSM command to report
    `Success`, then polls `http://<public IP>/_stcore/health` for up to 150 seconds and fails
-   the job if it never answers.
+   the job if it never answers. (It has not run yet; see the status above.)
 6. *How would you roll back?* Every image is tagged with its commit SHA, so re-run the deploy
    of an earlier commit from the Actions tab, or send the script with an older tag.
 7. *What does it cost?* On the Free plan it comes out of the credits; the public IPv4 address
@@ -231,15 +237,16 @@ Claude Desktop discovers and calls them.
 
 1. A shared, durable request counter, so the cap holds across restarts, pods and hosts.
 2. Measure how often the exact-quote rule rejects a correct item before loosening it.
-3. HTTPS and a load balancer in front of EC2, or move to ECS.
+3. Set up the AWS deployment that is already written, then add HTTPS and a load balancer.
 
 ## Live demo script (about 8 minutes)
 
 1. **Repo tour (1 min).** Show the README diagram. Point at `podcast_compass/` (logic),
    `app.py` (UI only), `mcp_server.py`, `k8s/`, `.github/workflows/ci.yml`.
 2. **CI (1 min).** Open the Actions tab, a green run: lint and test, secret scan, image build
-   with the health check, deploy. Open the deploy log's last line with the health result.
-3. **The live app (2 min).** Open the AWS address. Load the example episode, show a citation
+   with the health check. Point out the deploy job is skipped and why.
+3. **The live app (2 min).** Open the Streamlit Cloud URL, or `docker compose up` locally.
+   Load the example episode, show a citation
    with its time, answer one quiz question, then **Ask the podcast**: "What equipment do you
    need?" Show the verified quote. Ask something not covered, "What does a queen bee cost?",
    and show "not in the transcript".

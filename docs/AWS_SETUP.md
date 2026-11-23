@@ -1,8 +1,12 @@
 # Deploying to AWS
 
-Every push to `main` that passes the tests is built into an image, pushed to Amazon ECR and
-started on one EC2 instance. This page is the one-time setup that makes that possible, what
-it costs, and how to remove all of it.
+Once this is set up, every push to `main` that passes the tests is built into an image,
+pushed to Amazon ECR and started on one EC2 instance. This page is the one-time setup that
+makes that possible, what it costs, and how to remove all of it.
+
+**Status: not set up.** No AWS account has been created for this project, so the `deploy`
+job is skipped on every run and has never executed. Nothing below has been tested against
+a real account.
 
 ## How a deploy works
 
