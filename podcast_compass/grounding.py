@@ -14,7 +14,8 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 
-from .models import Chapter, EpisodeResult, Evidence, QuizQuestion, Takeaway
+from . import messages
+from .models import Answer, Chapter, EpisodeResult, Evidence, QuizQuestion, Takeaway
 from .segments import Segment
 from .text import plural
 
@@ -265,3 +266,49 @@ def validate(result: EpisodeResult, segments: dict[str, Segment]) -> GroundedRes
         report=report,
         has_timestamps=has_timestamps,
     )
+
+
+def verify_quiz(
+    quiz: list[QuizQuestion], segments: dict[str, Segment]
+) -> tuple[list[QuizQuestion], ValidationReport]:
+    """The quiz checks on their own, for a quiz generated without the rest of a result."""
+    report = ValidationReport()
+    return _filter_quiz(list(quiz), segments, report), report
+
+
+@dataclass(frozen=True)
+class VerifiedCitation:
+    segment_id: str
+    quote: str
+    start_seconds: float | None
+
+
+@dataclass(frozen=True)
+class VerifiedAnswer:
+    supported: bool
+    text: str
+    citations: list[VerifiedCitation]
+    dropped: int
+
+
+def verify_answer(
+    answer: Answer, segments: dict[str, Segment], retrieved_ids: set[str]
+) -> VerifiedAnswer:
+    """Hold an answer to the same rule as every other item, plus one more.
+
+    A citation counts only if its segment was among those retrieved for the question,
+    since those are the only segments the model was shown, and its quote passes the same
+    check as a takeaway's. An answer with no citation left is replaced by "not in the
+    transcript": an answer we cannot point to is worse than no answer.
+
+    The start time comes from the parsed cues, as for chapters.
+    """
+    kept = [
+        VerifiedCitation(item.segment_id, item.quote, segments[item.segment_id].start)
+        for item in answer.citations
+        if item.segment_id in retrieved_ids and quote_is_grounded(item, segments)
+    ]
+    dropped = len(answer.citations) - len(kept)
+    if not (answer.supported and answer.answer.strip() and kept):
+        return VerifiedAnswer(False, messages.NOT_IN_TRANSCRIPT, [], dropped)
+    return VerifiedAnswer(True, answer.answer.strip(), kept, dropped)

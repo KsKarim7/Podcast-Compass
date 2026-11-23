@@ -39,6 +39,7 @@ def never_reach_the_provider(monkeypatch):
         )
 
     monkeypatch.setattr("podcast_compass.llm.build_sdk_call", refuse)
+    monkeypatch.setattr("podcast_compass.llm.build_sdk_embedder", refuse)
 
 
 def fresh(key: str = "") -> AppTest:
@@ -175,7 +176,14 @@ class TestExampleEpisode:
 
     def test_renders_every_section(self, loaded):
         headings = [s.value for s in loaded.subheader]
-        assert headings == ["Overview", "Chapters", "Quiz", "Revise one section", "Copy or download"]
+        assert headings == [
+            "Overview",
+            "Chapters",
+            "Quiz",
+            "Ask the podcast",
+            "Revise one section",
+            "Copy or download",
+        ]
 
     def test_detection_line_reports_webvtt_and_cues(self, loaded):
         assert "WebVTT" in captions(loaded)
@@ -296,5 +304,29 @@ class TestTheGuardItself:
         with pytest.raises(AssertionError, match="never call the provider"):
             llm.build_sdk_call("dummy")
 
+    def test_build_sdk_embedder_is_patched_in_these_tests(self, app):
+        from podcast_compass import llm
+
+        with pytest.raises(AssertionError, match="never call the provider"):
+            llm.build_sdk_embedder("dummy")
+
     def test_the_key_is_blanked_regardless_of_a_local_secrets_file(self, app):
         assert app.secrets["GEMINI_API_KEY"] == ""
+
+
+class TestKeyFromTheEnvironment:
+    """Docker, Kubernetes and EC2 pass the key as an environment variable."""
+
+    def test_an_environment_key_is_used_when_secrets_are_blank(self, monkeypatch):
+        monkeypatch.setenv("GEMINI_API_KEY", "env-key-never-used")
+        at = fresh()
+        at.run()
+        assert messages.MISSING_KEY not in captions(at)
+
+    def test_no_key_anywhere_still_reports_it(self, app):
+        assert messages.MISSING_KEY in captions(app)
+
+    def test_the_suite_never_inherits_a_shell_key(self):
+        import os
+
+        assert "GEMINI_API_KEY" not in os.environ

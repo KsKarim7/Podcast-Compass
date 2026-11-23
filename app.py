@@ -7,13 +7,14 @@ live in the podcast_compass package so they can be tested without a browser or a
 from __future__ import annotations
 
 import logging
+import os
 import time
 
 import streamlit as st
 
-from podcast_compass import config, export, messages, prompts, quota, render, sample
+from podcast_compass import ask, config, export, messages, prompts, quota, render, sample
 from podcast_compass.grounding import GroundedResult, GroundingRejected, validate
-from podcast_compass.llm import LlmError, build_sdk_call, generate
+from podcast_compass.llm import LlmError, build_sdk_call, build_sdk_embedder, generate
 from podcast_compass.models import SECTION_MODELS, EpisodeResult, replace_section
 from podcast_compass.parsing import (
     ALLOWED_EXTENSIONS,
@@ -55,13 +56,13 @@ def session_usage() -> quota.SessionUsage:
     return st.session_state["usage"]
 
 
-def spend_allowed() -> str | None:
+def spend_allowed(cost: int = quota.REQUESTS_PER_ACTION) -> str | None:
     """None when an action may proceed, otherwise the message to show.
 
     Checked before the client is built, so a blocked action costs nothing at all.
     """
     decision = quota.check(
-        session_usage(), daily_counter(), monotonic=time.monotonic()
+        session_usage(), daily_counter(), monotonic=time.monotonic(), cost=cost
     )
     return None if decision.allowed else decision.message
 
@@ -92,7 +93,14 @@ def call_with_quota(run):
 
 
 def api_key() -> str | None:
-    """Streamlit raises if no secrets file exists at all, so this stays defensive."""
+    """The environment first, for Docker, Kubernetes and EC2; then Streamlit's secrets,
+    which is how Streamlit Community Cloud supplies it.
+
+    Streamlit raises if no secrets file exists at all, so that lookup stays defensive.
+    """
+    key = os.environ.get("GEMINI_API_KEY")
+    if key:
+        return key
     try:
         key = st.secrets.get("GEMINI_API_KEY")
     except Exception:
@@ -110,10 +118,18 @@ def init_state() -> None:
     st.session_state.setdefault("previous", {})
     st.session_state.setdefault("checked", False)
     st.session_state.setdefault("source", None)
+    st.session_state.setdefault("ask_answer", None)
+    st.session_state.setdefault("ask_error", None)
+    # The search index for the transcript on screen. It lives in this session only, so a
+    # visitor's transcript is never kept beyond their own session.
+    st.session_state.setdefault("rag_index", None)
 
 
 def clear_all() -> None:
-    for key in ("raw", "result", "segments", "detection", "notice", "error", "source"):
+    for key in (
+        "raw", "result", "segments", "detection", "notice", "error", "source",
+        "ask_answer", "ask_error", "rag_index",
+    ):
         st.session_state[key] = None
     st.session_state["previous"] = {}
     st.session_state["checked"] = False
@@ -293,6 +309,62 @@ def undo(section: str) -> None:
         clear_answers(len(st.session_state["result"].quiz))
 
 
+def run_ask(question: str) -> None:
+    """One question: reserve the worst case, retrieve, answer, verify, settle."""
+    st.session_state["ask_answer"] = None
+    st.session_state["ask_error"] = None
+
+    if not ask.clean_question(question):
+        st.session_state["ask_error"] = messages.EMPTY_QUESTION
+        return
+
+    key = api_key()
+    if key is None:
+        st.session_state["ask_error"] = messages.MISSING_KEY
+        return
+
+    segments = st.session_state["segments"]
+    index = st.session_state["rag_index"]
+    worst = ask.worst_case_requests(index, segments)
+    blocked = spend_allowed(cost=worst)
+    if blocked:
+        st.session_state["ask_error"] = blocked
+        return
+
+    counter = daily_counter()
+    if not counter.reserve(worst):
+        st.session_state["ask_error"] = messages.DAILY_CAP.format(limit=counter.limit)
+        return
+
+    try:
+        with st.spinner("Searching the transcript…"):
+            outcome = ask.ask(
+                question,
+                segments,
+                model_call=build_sdk_call(key),
+                embed_call=build_sdk_embedder(key),
+                index=index,
+            )
+    except LlmError as exc:
+        # We cannot tell how many of the reserved requests were made before the failure,
+        # so none are given back: the count may run high, never low.
+        quota.record_action(session_usage(), monotonic=time.monotonic())
+        st.session_state["ask_error"] = exc.user_message
+        return
+    except ValueError:
+        # Embeddings that cannot be indexed, such as empty vectors. Not expected from the
+        # provider, but a message is better than a stack trace.
+        logger.warning("could not index or search the embeddings", exc_info=True)
+        quota.record_action(session_usage(), monotonic=time.monotonic())
+        st.session_state["ask_error"] = messages.UNKNOWN
+        return
+
+    counter.settle(worst, outcome.requests)
+    quota.record_action(session_usage(), monotonic=time.monotonic())
+    st.session_state["rag_index"] = outcome.index
+    st.session_state["ask_answer"] = outcome.answer
+
+
 def read_input(pasted: str, upload) -> str:
     if upload is None:
         return pasted
@@ -432,6 +504,39 @@ def show_quiz(result: GroundedResult) -> None:
         st.rerun()
 
 
+def show_ask() -> None:
+    st.subheader("Ask the podcast")
+    st.caption(
+        "Answers come only from the transcript, and every quote is checked against it. "
+        "The first question also indexes the transcript, which costs extra requests."
+    )
+    with st.form("ask"):
+        question = st.text_input(
+            "Your question",
+            max_chars=config.MAX_QUESTION_CHARS,
+            placeholder="e.g. What do they say about water?",
+            key="question",
+        )
+        asked = st.form_submit_button("Ask", disabled=api_key() is None)
+    if asked:
+        run_ask(question)
+
+    if st.session_state["ask_error"]:
+        st.error(st.session_state["ask_error"])
+
+    answer = st.session_state["ask_answer"]
+    if answer is None:
+        return
+    if not answer.supported:
+        st.info(answer.text, icon="ℹ️")
+    else:
+        st.write(answer.text)
+        for citation in answer.citations:
+            st.caption(render.citation_caption(citation))
+    if answer.dropped:
+        st.caption(render.dropped_citations_note(answer.dropped))
+
+
 def show_revision(result: GroundedResult) -> None:
     st.subheader("Revise one section")
     st.caption(
@@ -542,6 +647,8 @@ def main() -> None:
     show_overview(result)
     show_chapters(result)
     show_quiz(result)
+    st.divider()
+    show_ask()
     st.divider()
     show_revision(result)
     st.divider()

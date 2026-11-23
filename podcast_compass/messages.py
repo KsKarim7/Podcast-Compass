@@ -79,6 +79,15 @@ REVISION_REJECTED_BECAUSE = (
     "previous version: {reason}."
 )
 
+# --- ask the podcast --------------------------------------------------------------
+NOT_IN_TRANSCRIPT = (
+    "That isn't answered in the transcript, or not in a way we could check against it."
+)
+EMPTY_QUESTION = "Type a question first."
+SEARCH_UNAVAILABLE = (
+    "The search model is busy or did not answer in time. Please try again in a minute."
+)
+
 # --- our own caps -----------------------------------------------------------------
 SESSION_CAP = (
     "You have run {limit} generations in this session, which is this demo's limit. "

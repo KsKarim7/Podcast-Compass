@@ -1,5 +1,14 @@
 import pytest
 
+
+@pytest.fixture(autouse=True)
+def no_key_from_the_environment(monkeypatch):
+    """The app reads GEMINI_API_KEY from the environment before its secrets, so a key
+    exported in a developer's shell would otherwise reach every test that blanks the
+    secret. Removing it keeps the suite offline whatever machine runs it.
+    """
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+
 # Fixtures have to clear the 250-word minimum, because that minimum is what guarantees
 # a transcript makes enough segments to carry two chapters. Each cue therefore carries
 # a real opening sentence plus filler, which keeps the cue count small and readable

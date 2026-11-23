@@ -52,6 +52,16 @@ class EpisodeResult(BaseModel):
     quiz: list[QuizQuestion] = Field(description="5-8 questions")
 
 
+class Answer(BaseModel):
+    """An answer to a visitor's question. Like everything else, it has no time field."""
+
+    supported: bool = Field(description="false when the excerpts do not answer the question")
+    answer: str = Field(description="1-3 sentences, or empty when not supported")
+    citations: list[Evidence] = Field(
+        description="1-3 quotes that support the answer; empty when not supported"
+    )
+
+
 # One schema per revisable section, so a revision call sends only what it needs to.
 class OverviewOnly(BaseModel):
     overview: Overview

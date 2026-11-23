@@ -35,6 +35,19 @@ RETRY_MAX_DELAY_S = 2.0
 RETRY_STATUS_CODES = [408, 429, 500, 503, 504]
 
 MAX_REVISION_CHARS = 300
+MAX_QUESTION_CHARS = 300
+
+# "Ask the podcast" embeds every segment once, then each question. The model is named here
+# for the same reason as the generation models above.
+EMBEDDING_MODEL = "gemini-embedding-001"
+# The model returns 3072 numbers by default and can return fewer; 768 is plenty to tell a
+# few hundred segments apart and uses a quarter of the memory. Shortened vectors are no
+# longer unit length, so rag.py normalises every vector before it is indexed or searched.
+EMBEDDING_DIMENSIONS = 768
+# The API reference gives no per-call maximum; 100 texts keeps each request modest, and a
+# transcript at the character limit (about 250 segments) takes three requests.
+EMBED_BATCH_SIZE = 100
+RETRIEVAL_TOP_K = 5
 
 # Past this point a repair retry would push the worst case beyond what anyone will wait for.
 REPAIR_BUDGET_S = 60.0

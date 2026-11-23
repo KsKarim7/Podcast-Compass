@@ -17,7 +17,7 @@ from streamlit.testing.v1 import AppTest
 from podcast_compass import config, messages, quota
 from podcast_compass.grounding import GroundingRejected, validate
 from podcast_compass.llm import LlmError, classify, generate
-from podcast_compass.models import OverviewOnly, QuizOnly, replace_section
+from podcast_compass.models import OverviewOnly, QuizOnly
 from podcast_compass.parsing import InputError, decode_bytes, parse_transcript, read_upload
 from podcast_compass.segments import build_segments, segment_lookup
 from tests.fixtures import handwritten_result
@@ -179,6 +179,7 @@ def never_reach_the_provider(monkeypatch):
         raise AssertionError("a catalogue test must never call the provider")
 
     monkeypatch.setattr("podcast_compass.llm.build_sdk_call", refuse)
+    monkeypatch.setattr("podcast_compass.llm.build_sdk_embedder", refuse)
 
 
 def fresh_app(key: str = "") -> AppTest:

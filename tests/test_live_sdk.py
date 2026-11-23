@@ -74,3 +74,20 @@ def test_generate_surfaces_the_config_message_and_does_not_fall_back():
     assert excinfo.value.user_message == messages.REJECTED_KEY
     # A bad key is not worth trying on the fallback model.
     assert attempts == [config.PRIMARY_MODEL]
+
+
+def test_real_embeddings_call_with_an_invalid_key_maps_to_a_config_failure():
+    """The same check for the embeddings endpoint, which may raise a different class."""
+    embed_call = llm.build_sdk_embedder(INVALID_KEY)
+
+    with pytest.raises(llm.LlmError) as excinfo:
+        llm.embed(embed_call, ["hello"], "RETRIEVAL_QUERY")
+
+    observed = excinfo.value.__cause__
+    print(f"\n  class       : {type(observed).__name__}")
+    print(f"  module      : {type(observed).__module__}")
+    print(f"  status_code : {getattr(observed, 'status_code', 'ABSENT')!r}")
+    print(f"  code        : {getattr(observed, 'code', 'ABSENT')!r}")
+
+    assert excinfo.value.failure.kind == "config"
+    assert excinfo.value.user_message == messages.REJECTED_KEY

@@ -1,8 +1,8 @@
 """The provider boundary: one call, classified failures, one fallback, one repair.
 
 The SDK call is injected rather than imported at the call site, so every path in here is
-testable without a key or a network. `build_sdk_call` is the only function that touches
-google-genai.
+testable without a key or a network. `_client`, `build_sdk_call` and `build_sdk_embedder` are
+the only functions that touch google-genai.
 
 Two things worth knowing about this SDK, both established by inspecting 2.29.0 rather than
 from its documentation:
@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable, Protocol, TypeVar
 
 from pydantic import BaseModel
@@ -89,6 +89,12 @@ def _looks_like_timeout(exc: Exception) -> bool:
 
 def classify(exc: Exception) -> Failure:
     status = getattr(exc, "status_code", None)
+    if status is None:
+        # The SDK's documented error class carries the HTTP status as `code` rather than
+        # `status_code`. Read it too, in case the embeddings endpoint raises that class
+        # rather than the private one described at the top of this module.
+        code = getattr(exc, "code", None)
+        status = code if isinstance(code, int) else None
     message = str(getattr(exc, "message", "") or exc)
     detail = f"{type(exc).__name__} status={status!r}"
 
@@ -193,12 +199,12 @@ def generate(
     return parsed, outcome
 
 
-def build_sdk_call(api_key: str) -> ModelCall:
-    """The real adapter. Imported lazily so tests never need google-genai configured."""
+def _client(api_key: str):
+    """One client configuration for both calls: our timeout and our retry policy."""
     from google import genai
     from google.genai import types
 
-    client = genai.Client(
+    return genai.Client(
         api_key=api_key,
         http_options=types.HttpOptions(
             timeout=config.REQUEST_TIMEOUT_MS,
@@ -210,6 +216,11 @@ def build_sdk_call(api_key: str) -> ModelCall:
             ),
         ),
     )
+
+
+def build_sdk_call(api_key: str) -> ModelCall:
+    """The real adapter. Imported lazily so tests never need google-genai configured."""
+    client = _client(api_key)
 
     def call(
         *, model: str, system_instruction: str, prompt: str, schema: dict[str, Any]
@@ -225,5 +236,60 @@ def build_sdk_call(api_key: str) -> ModelCall:
             },
         )
         return interaction.output_text
+
+    return call
+
+
+class EmbedCall(Protocol):
+    """One embedding request for a batch of texts. Returns one vector per text."""
+
+    def __call__(self, *, texts: list[str], task_type: str) -> list[list[float]]: ...
+
+
+# An embedding failure has no second model to fall back to: vectors from another model
+# could not be compared with the ones already in the index. So the "busy, trying a second
+# model" wording would be wrong, and these kinds get their own message.
+_SEARCH_FAILURE_KINDS = {"not_found", "transient", "timeout"}
+
+
+def embed(call: EmbedCall, texts: list[str], task_type: str) -> list[list[float]]:
+    """One embedding request, with failures classified exactly as for generation."""
+    try:
+        vectors = call(texts=texts, task_type=task_type)
+    except Exception as exc:
+        failure = classify(exc)
+        if failure.kind in _SEARCH_FAILURE_KINDS:
+            failure = replace(failure, user_message=messages.SEARCH_UNAVAILABLE)
+        logger.warning("embedding call failed: %s", failure.detail)
+        raise LlmError(failure) from exc
+
+    if len(vectors) != len(texts):
+        raise LlmError(
+            Failure(
+                "malformed",
+                messages.UNKNOWN,
+                False,
+                f"asked for {len(texts)} embeddings, got {len(vectors)}",
+            )
+        )
+    return vectors
+
+
+def build_sdk_embedder(api_key: str) -> EmbedCall:
+    """The real embedding adapter, lazily imported like build_sdk_call."""
+    from google.genai import types
+
+    client = _client(api_key)
+
+    def call(*, texts: list[str], task_type: str) -> list[list[float]]:
+        result = client.models.embed_content(
+            model=config.EMBEDDING_MODEL,
+            contents=texts,
+            config=types.EmbedContentConfig(
+                task_type=task_type,
+                output_dimensionality=config.EMBEDDING_DIMENSIONS,
+            ),
+        )
+        return [list(item.values) for item in result.embeddings]
 
     return call
